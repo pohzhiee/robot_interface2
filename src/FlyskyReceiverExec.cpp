@@ -1,0 +1,31 @@
+#include <iostream>
+#include <ecal/ecal.h>
+#include <ecal/msg/protobuf/publisher.h>
+#include <ecal/msg/protobuf/subscriber.h>
+#include "robot_interface2/Flysky/FlyskyRemoteReceiver.hpp"
+#include "raspiHardware/GPIO.hpp"
+#include "raspiHardware/UART.hpp"
+#include "raspiHardware/DMA.hpp"
+#include "raspiHardware/Mmap.hpp"
+
+using namespace eCAL::protobuf;
+
+int main()
+{
+    // initialize eCAL API
+    eCAL::Initialize({}, "Robot1 Flysky remote receiver publisher");
+
+    // set process state
+    eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "Robot1 Flysky remote receiver publisher");
+
+    uintptr_t gpioMmapPtr = mmapPeriph(GPIO_Base);
+    uintptr_t uartMmapPtr = mmapPeriph(UART_Base);
+    uintptr_t dmaMmapPtr = mmapPeriph(DMA_Base);
+    auto a = robot_interface2::FlyskyRemoteReceiver(gpioMmapPtr, uartMmapPtr, dmaMmapPtr);
+    while (eCAL::Ok()) {
+        eCAL::Process::SleepMS(100);
+    }
+
+    std::cout << "FINISHED" << std::endl;
+    eCAL::Finalize();
+}
