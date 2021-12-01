@@ -23,7 +23,7 @@ extern "C"
 // functions are meant to operate on these.
 struct UncachedMemBlock
 {
-    span<uint8_t> mem; // User visible value: the memory to use.
+    span<volatile uint8_t> mem; // User visible value: the memory to use.
 
     //-- Internal representation.
     uint32_t bus_addr;
@@ -39,5 +39,5 @@ void UncachedMemBlock_free(UncachedMemBlock &block);
 
 // Given a pointer to memory that is in the allocated block, return the
 // physical bus addresse needed by DMA operations.
-uintptr_t UncachedMemBlock_to_physical(const struct UncachedMemBlock *blk, void *p);
+uintptr_t UncachedMemBlock_to_physical(const struct UncachedMemBlock *blk, volatile void *p);
 #endif // ROBOT_INTERFACE2_UNCACHEDMEM_HPP

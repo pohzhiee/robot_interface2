@@ -22,7 +22,7 @@ struct UncachedMemBlock UncachedMemBlock_alloc(size_t size)
     assert(result.bus_addr); // otherwise: couldn't allocate contiguous block.
     // Use 32-bit addressing rather than using memset or any other library functions due to the potential to use 64-bit
     // addressing on arm64 Using 64-bit addressing will cause a bus error
-    auto *ptr1 = (uint32_t *)result.mem.data();
+    auto *ptr1 = (volatile uint32_t *)result.mem.data();
     for (int i = 0; i < 1024; i++)
     {
         ptr1[i] = 0;
@@ -39,12 +39,12 @@ void UncachedMemBlock_free(UncachedMemBlock &block)
     unmapmem(block.mem.data(), block.mem.size());
     mem_unlock(mbox_fd, block.mem_handle);
     mem_free(mbox_fd, block.mem_handle);
-    block.mem = span<uint8_t>();
+    block.mem = span<volatile uint8_t>();
 }
 
-uintptr_t UncachedMemBlock_to_physical(const struct UncachedMemBlock *blk, void *p)
+uintptr_t UncachedMemBlock_to_physical(const UncachedMemBlock *blk, volatile void *p)
 {
-    uint32_t offset = (uint8_t *)p - (uint8_t *)blk->mem.data();
+    uint32_t offset = (volatile uint8_t *)p - (volatile uint8_t *)blk->mem.data();
     assert(offset < blk->mem.size()); // pointer not within our block.
     return blk->bus_addr + offset;
 }

@@ -24,8 +24,11 @@ UARTDMAReader::UARTDMAReader(UARTRegisters *uart_ptr, DMARegisters *dma_ptr, uin
     data_mem_block_ = UncachedMemBlock_alloc(Page_Size);
 
     con_blocks_ = span<DMAControlBlock, Page_Size / sizeof(DMAControlBlock)>(
-        reinterpret_cast<DMAControlBlock *>(control_block_mem_block_.mem.data()), 128);
-    rx_buffer_ = span<uint32_t, Page_Size / 4>(reinterpret_cast<uint32_t *>(data_mem_block_.mem.data()), 1024);
+        const_cast<DMAControlBlock *>(
+            reinterpret_cast<volatile DMAControlBlock *>(control_block_mem_block_.mem.data())),
+        128);
+    rx_buffer_ =
+        span<volatile uint32_t, Page_Size / 4>(reinterpret_cast<volatile uint32_t *>(data_mem_block_.mem.data()), 1024);
 
     SetupControlBlocks(uart_num, dma_len);
 
@@ -163,7 +166,7 @@ bool WaitForDmaComplete(DMARegisters *dma_ptr, std::atomic<bool> &stop_requested
     return true;
 }
 
-std::array<uint8_t, 256> UARTDMAReader::ReadBufferData(span<uint32_t> buf)
+std::array<uint8_t, 256> UARTDMAReader::ReadBufferData(span<volatile uint32_t> buf)
 {
     std::array<uint8_t, 256> data_byte_array{};
     for (int i = 0; i < buf.size(); i++)
@@ -299,7 +302,7 @@ void UARTDMAReader::Run()
         fprintf(stderr, "Num data written before offset: %d\n", data_written);
         fprintf(stderr, "Tx left: %d\n", 128 - (tx_left / 4));
     }
-    data_byte_array = ReadBufferData(span<uint32_t>(rx_buffer_.subspan(index_offset, data_written)));
+    data_byte_array = ReadBufferData(span<volatile uint32_t>(rx_buffer_.subspan(index_offset, data_written)));
 
     for (auto &callback : callbacks_)
     {
