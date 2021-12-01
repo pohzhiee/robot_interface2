@@ -49,6 +49,7 @@ class StateEstimator::Impl
             });
         motorFeedbackSub_->AddReceiveCallback(
             [this](auto * /*topicName*/, const auto &msg, auto /*time*/, auto /*clock*/, auto /*id*/) {
+                std::lock_guard lock(motorDataMutex_);
                 latestMotorFeedback_ = msg;
                 lastMotorFeedbackTime_ = steady_clock::now();
             });
@@ -87,7 +88,6 @@ class StateEstimator::Impl
     // Filtering data and objects
     std::array<Iir::Butterworth::HighPass<4>, 3> butterworthFilters_{};
     TrapzIntegrator<3> integrator_;
-    Eigen::Vector3d prevWorldLinVel_{};
 
     uint32_t msgCount_{0};
 };
@@ -151,20 +151,6 @@ bool StateEstimator::Impl::ProcessImuData(robot_interface::StateEstimatorMessage
         worldLinAccFiltered(i) = butterworthFilter.filter(worldLinAcc(i));
     }
     auto worldLinVel = integrator_.AddData(worldLinAccFiltered, static_cast<double>(timeDiff / 1'000'000) * 0.001);
-    auto velDiff = (worldLinVel - prevWorldLinVel_).norm();
-    prevWorldLinVel_ = worldLinVel;
-    if (velDiff > 10.0)
-    {
-        std::cerr << "Large change in linear velocity detected" << std::endl;
-        std::cerr << "Prev Vel:\n" << prevWorldLinVel_ << std::endl;
-        std::cerr << "New Vel:\n" << worldLinVel << std::endl;
-        std::cerr << "Latest sample time: " << latestImuMessage.sample_time_ns() << std::endl;
-        std::cerr << "Time diff (ns): " << timeDiff << std::endl;
-        std::cerr << "World Lin Acc:\n" << worldLinAcc << std::endl;
-        std::cerr << "World Lin Acc Filt:\n" << worldLinAccFiltered << std::endl;
-        return false;
-    }
-    prevWorldLinVel_ = worldLinVel;
     Eigen::Vector3d worldAngularVel = baseToWorldRotMat * baseAngularVel;
 
     msg.set_message_id(msgCount_);
@@ -186,17 +172,22 @@ bool StateEstimator::Impl::ProcessImuData(robot_interface::StateEstimatorMessage
 }
 bool StateEstimator::Impl::ProcessMotorData(robot_interface::StateEstimatorMessage &msg)
 {
-    if (!latestMotorFeedback_.has_value())
-        return false;
-    if (steady_clock::now() - lastMotorFeedbackTime_ > 500ms)
+    robot_interface::MotorFeedbackMsg latestMotorFeedback;
     {
-        std::cerr << "More than 500ms since last motor feedback" << std::endl;
-        latestMotorFeedback_ = std::nullopt;
-        return false;
+        std::lock_guard lock(motorDataMutex_);
+        if (!latestMotorFeedback_.has_value())
+            return false;
+        if (steady_clock::now() - lastMotorFeedbackTime_ > 500ms)
+        {
+            std::cerr << "More than 500ms since last motor feedback" << std::endl;
+            latestMotorFeedback_ = std::nullopt;
+            return false;
+        }
+        latestMotorFeedback = latestMotorFeedback_.value();
     }
     // we use sorted map to guarantee our joint positions will always be in ascending order of motor id
     std::map<uint32_t, double> jointPosMap{}, jointVelMap{};
-    for (const auto &feedback : latestMotorFeedback_->feedbacks())
+    for (const auto &feedback : latestMotorFeedback.feedbacks())
     {
         if (!feedback.ready())
             continue;
