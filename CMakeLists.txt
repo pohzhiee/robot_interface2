@@ -39,6 +39,17 @@ target_include_directories(
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(motor_controller_test PUBLIC eCAL::core robot_interface_protobuf raspi_hardware)
 
+
+find_package(iir REQUIRED)
+find_package(Eigen3 REQUIRED)
+add_executable(state_estimator_pub src/stateEstimator/StateEstimatorExec.cpp src/stateEstimator/StateEstimator.cpp src/stateEstimator/TrapzIntegrator.hpp)
+target_include_directories(
+        state_estimator_pub PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(state_estimator_pub PUBLIC eCAL::core robot_interface_protobuf
+        Eigen3::Eigen
+        iir::iir_static)
+
 install(
-        TARGETS motor_controller flysky_remote mti_receiver motor_controller_test
+        TARGETS motor_controller flysky_remote mti_receiver motor_controller_test state_estimator_pub
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
