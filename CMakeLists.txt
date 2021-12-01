@@ -24,6 +24,13 @@ target_include_directories(
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(flysky_remote PUBLIC eCAL::core robot_interface_protobuf raspi_hardware)
 
+add_executable(mti_receiver src/xsens/MTiParser.cpp src/xsens/MTiReceiver.cpp src/MTiReceiverExec.cpp)
+target_include_directories(
+        mti_receiver PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(mti_receiver PUBLIC eCAL::core robot_interface_protobuf raspi_hardware xstypes)
+
+
 add_executable(motor_controller_test src/MotorControllerTest.cpp)
 target_include_directories(
         motor_controller_test PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
