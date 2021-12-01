@@ -207,9 +207,9 @@ void UARTDMAReader::Run()
 
     InitUART(uart_ptr_, baud_);
 
-//    printf("Src address: %X\n", dma_ptr_->SourceAddr);
-//    printf("Dest address: %X\n", dma_ptr_->DestAddr);
-//    printf("NextCtrlBlk address: %X\n", dma_ptr_->NextCtrlBlk);
+    //    printf("Src address: %X\n", dma_ptr_->SourceAddr);
+    //    printf("Dest address: %X\n", dma_ptr_->DestAddr);
+    //    printf("NextCtrlBlk address: %X\n", dma_ptr_->NextCtrlBlk);
 
     while (!stop_requested_)
     {
@@ -346,4 +346,4 @@ void UARTDMAReader::InitUARTGPIO(uintptr_t gpioMmapPtr, uint8_t uartNum)
         throw std::runtime_error("Unsupported UART number given to initialise");
     }
 }
-} // namespace RobotInterface
+} // namespace robot_interface2

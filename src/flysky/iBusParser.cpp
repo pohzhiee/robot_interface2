@@ -129,4 +129,4 @@ std::ostream &operator<<(std::ostream &out, const SwitchState &state)
     }
     return out;
 }
-} // namespace RobotInterface::Flysky
+} // namespace robot_interface2::Flysky

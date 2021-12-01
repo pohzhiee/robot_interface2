@@ -30,7 +30,6 @@ struct UncachedMemBlock
     uint32_t mem_handle;
 };
 
-
 // Allocate a block of memory of the given size (which is rounded up to the next
 // full page). The memory will be aligned on a page boundary and zeroed out.
 struct UncachedMemBlock UncachedMemBlock_alloc(size_t size);

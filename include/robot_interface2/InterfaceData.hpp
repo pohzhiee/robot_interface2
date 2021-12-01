@@ -7,9 +7,9 @@ using tcb::span;
 inline uint32_t Crc32Fast(uint32_t Crc, uint32_t Data)
 {
     static const uint32_t CrcTable[16] = {// Nibble lookup table for 0x04C11DB7 polynomial
-            0x00000000, 0x04C11DB7, 0x09823B6E, 0x0D4326D9, 0x130476DC, 0x17C56B6B,
-            0x1A864DB2, 0x1E475005, 0x2608EDB8, 0x22C9F00F, 0x2F8AD6D6, 0x2B4BCB61,
-            0x350C9B64, 0x31CD86D3, 0x3C8EA00A, 0x384FBDBD};
+                                          0x00000000, 0x04C11DB7, 0x09823B6E, 0x0D4326D9, 0x130476DC, 0x17C56B6B,
+                                          0x1A864DB2, 0x1E475005, 0x2608EDB8, 0x22C9F00F, 0x2F8AD6D6, 0x2B4BCB61,
+                                          0x350C9B64, 0x31CD86D3, 0x3C8EA00A, 0x384FBDBD};
 
     Crc = Crc ^ Data; // Apply all 32-bits
 
@@ -163,15 +163,15 @@ struct MotorFeedbackFull
 
     [[nodiscard]] bool CheckCRC() const
     {
-        uint32_t CRCCalc = GetCRC32(
-            span<const uint32_t>(reinterpret_cast<uint32_t const *>(this), sizeof(MotorFeedbackFull) / 4 - 1));
+        uint32_t CRCCalc =
+            GetCRC32(span<const uint32_t>(reinterpret_cast<uint32_t const *>(this), sizeof(MotorFeedbackFull) / 4 - 1));
         return CRCCalc == this->CRC32;
     }
 
     void GenerateCRC() const
     {
-        uint32_t CRCCalc = GetCRC32(
-            span<const uint32_t>(reinterpret_cast<uint32_t const *>(this), sizeof(MotorFeedbackFull) / 4 - 1));
+        uint32_t CRCCalc =
+            GetCRC32(span<const uint32_t>(reinterpret_cast<uint32_t const *>(this), sizeof(MotorFeedbackFull) / 4 - 1));
         this->CRC32 = CRCCalc;
     }
 };

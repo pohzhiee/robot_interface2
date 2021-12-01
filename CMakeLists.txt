@@ -7,6 +7,8 @@ option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 find_package(Threads)
 
 include(GNUInstallDirs)
+include(cmake/lint-targets.cmake)
+
 include(cmake/raspi_hardware.cmake)
 include(cmake/xstypes.cmake)
 

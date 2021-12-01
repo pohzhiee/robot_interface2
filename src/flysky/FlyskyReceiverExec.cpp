@@ -1,10 +1,10 @@
-#include <iostream>
-#include <ecal/ecal.h>
-#include "robot_interface2/Flysky/FlyskyRemoteReceiver.hpp"
-#include "raspiHardware/GPIO.hpp"
-#include "raspiHardware/UART.hpp"
 #include "raspiHardware/DMA.hpp"
+#include "raspiHardware/GPIO.hpp"
 #include "raspiHardware/Mmap.hpp"
+#include "raspiHardware/UART.hpp"
+#include "robot_interface2/Flysky/FlyskyRemoteReceiver.hpp"
+#include <ecal/ecal.h>
+#include <iostream>
 
 int main()
 {
@@ -18,7 +18,8 @@ int main()
     uintptr_t uartMmapPtr = mmapPeriph(UART_Base);
     uintptr_t dmaMmapPtr = mmapPeriph(DMA_Base);
     auto a = robot_interface2::FlyskyRemoteReceiver(gpioMmapPtr, uartMmapPtr, dmaMmapPtr);
-    while (eCAL::Ok()) {
+    while (eCAL::Ok())
+    {
         eCAL::Process::SleepMS(100);
     }
 

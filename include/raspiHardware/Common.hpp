@@ -1,11 +1,10 @@
 #ifndef ROBOT_INTERFACE2_RASPIHARDWARE_COMMON_HPP
 #define ROBOT_INTERFACE2_RASPIHARDWARE_COMMON_HPP
-#include <cstring>
-#include <cstdint>
-#include <type_traits>
 #include "robot_interface2/span.hpp"
+#include <cstdint>
+#include <cstring>
+#include <type_traits>
 using tcb::span; // This is here to make it easier for us to transition to c++20 span
-
 
 constexpr uint32_t Peripheral_Base = 0xFE000000;
 constexpr uint32_t Page_Size = 4096;

@@ -1,9 +1,10 @@
 #include "robot_interface2/xsens/MTiParser.hpp"
-#include <xstypes/xsxbusmessageid.h>
-#include <xstypes/xsmessage.h>
 #include <iostream>
+#include <xstypes/xsmessage.h>
+#include <xstypes/xsxbusmessageid.h>
 
-namespace robot_interface2{
+namespace robot_interface2
+{
 
 void MTiParser::AddByte(uint8_t byte)
 {
@@ -48,12 +49,13 @@ void MTiParser::AddByte(uint8_t byte)
         currentState_ = State::PendingChecksum;
         return;
     case State::PendingChecksum:
-        if(bytesLeftToChecksum_ != 0){
+        if (bytesLeftToChecksum_ != 0)
+        {
             bytesLeftToChecksum_--;
             return;
         }
         currentState_ = State::PendingHeader;
-        [&](){
+        [&]() {
             assert(messageTotalSize_ < 300); // check for sane message size
             XsMessage msg(&dataStore_[currentDataStartIndex_], messageTotalSize_);
 
@@ -91,4 +93,4 @@ void MTiParser::ClearCallbacks()
 {
     callbacks_ = {};
 }
-}
+} // namespace robot_interface2

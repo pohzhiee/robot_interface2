@@ -1,12 +1,14 @@
 #include "robot_interface2/Flysky/FlyskyRemoteReceiver.hpp"
-#include "robot_interface2/Flysky/iBusParser.hpp"
 #include "raspiHardware/UARTDMAReader.hpp"
-namespace {
-robot_interface::FlyskyMessage_SwitchState ToProtoSwitchState(const robot_interface2::Flysky::SwitchState& state)
+#include "robot_interface2/Flysky/iBusParser.hpp"
+namespace
+{
+robot_interface::FlyskyMessage_SwitchState ToProtoSwitchState(const robot_interface2::Flysky::SwitchState &state)
 {
     using robot_interface::FlyskyMessage_SwitchState;
     using robot_interface2::Flysky::SwitchState;
-    switch (state) {
+    switch (state)
+    {
     case SwitchState::Up:
         return FlyskyMessage_SwitchState::FlyskyMessage_SwitchState_UP;
     case SwitchState::Middle:
@@ -18,7 +20,7 @@ robot_interface::FlyskyMessage_SwitchState ToProtoSwitchState(const robot_interf
     }
 }
 
-robot_interface::FlyskyMessage FlyskyStateToProto(const robot_interface2::Flysky::RemoteState& state)
+robot_interface::FlyskyMessage FlyskyStateToProto(const robot_interface2::Flysky::RemoteState &state)
 {
     auto msg = robot_interface::FlyskyMessage();
     msg.set_channel1(state.Channel1.raw_data);
@@ -35,17 +37,19 @@ robot_interface::FlyskyMessage FlyskyStateToProto(const robot_interface2::Flysky
 
     return msg;
 }
-}
+} // namespace
 
-namespace robot_interface2 {
+namespace robot_interface2
+{
 FlyskyRemoteReceiver::FlyskyRemoteReceiver(uintptr_t gpioMmapPtr, uintptr_t uartMmapPtr, uintptr_t dmaMmapPtr)
-        :
-        flyskyMessagePub_(std::make_unique<CPublisher<robot_interface::FlyskyMessage>>("flysky")),
-        uart_(std::make_unique<UARTDMAReader>(Get_UART<0>(uartMmapPtr), Get_DMA<6>(dmaMmapPtr), 0, gpioMmapPtr, 32, 115200)),
-        iBusParser_(std::make_unique<Flysky::iBusParser>())
+    : flyskyMessagePub_(std::make_unique<CPublisher<robot_interface::FlyskyMessage>>("flysky")),
+      uart_(std::make_unique<UARTDMAReader>(Get_UART<0>(uartMmapPtr), Get_DMA<6>(dmaMmapPtr), 0, gpioMmapPtr, 32,
+                                            115200)),
+      iBusParser_(std::make_unique<Flysky::iBusParser>())
 {
     uart_->AddCallback([this](auto data) {
-        for (auto& c: data) {
+        for (auto &c : data)
+        {
             iBusParser_->AddByte(c);
         }
     });
@@ -55,12 +59,12 @@ FlyskyRemoteReceiver::FlyskyRemoteReceiver(uintptr_t gpioMmapPtr, uintptr_t uart
         msgCount_++;
         flyskyMessagePub_->Send(protoMsg);
     });
-    runThread_ = std::thread([&](){uart_->Run();});
+    runThread_ = std::thread([&]() { uart_->Run(); });
 }
-FlyskyRemoteReceiver::~FlyskyRemoteReceiver(){
+FlyskyRemoteReceiver::~FlyskyRemoteReceiver()
+{
     uart_->Stop();
     runThread_.join();
 };
 
-
-}
+} // namespace robot_interface2

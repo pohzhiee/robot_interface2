@@ -17,11 +17,11 @@ static uintptr_t mmapPeriph(uint32_t periph_addr)
     }
 
     auto result = mmap(NULL, // Any adddress in our space will do
-            Page_Size,
-            PROT_READ | PROT_WRITE, // Enable r/w on GPIO registers.
-            MAP_SHARED,
-            mem_fd,     // File to map, in this case system memory
-            periph_addr // bcm register address
+                       Page_Size,
+                       PROT_READ | PROT_WRITE, // Enable r/w on GPIO registers.
+                       MAP_SHARED,
+                       mem_fd,     // File to map, in this case system memory
+                       periph_addr // bcm register address
     );
     close(mem_fd);
 
@@ -33,4 +33,4 @@ static uintptr_t mmapPeriph(uint32_t periph_addr)
 
     return reinterpret_cast<uintptr_t>(result);
 }
-#endif //ROBOT_INTERFACE2_MMAP_HPP
+#endif // ROBOT_INTERFACE2_MMAP_HPP

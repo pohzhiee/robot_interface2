@@ -1,9 +1,9 @@
-#include <iostream>
-#include <ecal/ecal.h>
-#include "robot_interface2/motor/MotorController.hpp"
 #include "raspiHardware/GPIO.hpp"
-#include "raspiHardware/SPI.hpp"
 #include "raspiHardware/Mmap.hpp"
+#include "raspiHardware/SPI.hpp"
+#include "robot_interface2/motor/MotorController.hpp"
+#include <ecal/ecal.h>
+#include <iostream>
 
 int main()
 {
@@ -16,7 +16,8 @@ int main()
     uintptr_t gpioMmapPtr = mmapPeriph(GPIO_Base);
     uintptr_t spiMmapPtr = mmapPeriph(SPI_Base);
     auto a = robot_interface2::MotorController(gpioMmapPtr, spiMmapPtr);
-    while (eCAL::Ok()) {
+    while (eCAL::Ok())
+    {
         eCAL::Process::SleepMS(100);
     }
 
