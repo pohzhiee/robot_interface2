@@ -42,29 +42,24 @@ FlyskyRemoteReceiver::FlyskyRemoteReceiver(uintptr_t gpioMmapPtr, uintptr_t uart
         :
         flyskyMessagePub_(std::make_unique<CPublisher<robot_interface::FlyskyMessage>>("flysky")),
         uart_(std::make_unique<UARTDMAReader>(Get_UART<0>(uartMmapPtr), Get_DMA<6>(dmaMmapPtr), 0, gpioMmapPtr, 32, 115200)),
-        iBusParser_(std::make_unique<Flysky::iBusParser>()),
-        pin6(gpioMmapPtr), pin16(gpioMmapPtr), pin26(gpioMmapPtr)
+        iBusParser_(std::make_unique<Flysky::iBusParser>())
 {
-    UARTDMAReader::printDebugInfo = true;
     uart_->AddCallback([this](auto data) {
         for (auto& c: data) {
             iBusParser_->AddByte(c);
         }
-        pin6.Toggle();
     });
     iBusParser_->AddCallback([&](auto state, auto info) {
         auto protoMsg = FlyskyStateToProto(state);
         protoMsg.set_message_id(msgCount_);
         msgCount_++;
         flyskyMessagePub_->Send(protoMsg);
-        pin16.Toggle();
     });
-    runThread_ = std::thread([&](){pin26.Toggle(); uart_->Run();});
+    runThread_ = std::thread([&](){uart_->Run();});
 }
 FlyskyRemoteReceiver::~FlyskyRemoteReceiver(){
     uart_->Stop();
     runThread_.join();
-    pin26.Toggle();
 };
 
 

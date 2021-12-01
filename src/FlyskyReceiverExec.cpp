@@ -1,14 +1,10 @@
 #include <iostream>
 #include <ecal/ecal.h>
-#include <ecal/msg/protobuf/publisher.h>
-#include <ecal/msg/protobuf/subscriber.h>
 #include "robot_interface2/Flysky/FlyskyRemoteReceiver.hpp"
 #include "raspiHardware/GPIO.hpp"
 #include "raspiHardware/UART.hpp"
 #include "raspiHardware/DMA.hpp"
 #include "raspiHardware/Mmap.hpp"
-
-using namespace eCAL::protobuf;
 
 int main()
 {

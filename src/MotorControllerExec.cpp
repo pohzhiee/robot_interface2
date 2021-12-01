@@ -1,13 +1,9 @@
 #include <iostream>
 #include <ecal/ecal.h>
-#include <ecal/msg/protobuf/publisher.h>
-#include <ecal/msg/protobuf/subscriber.h>
 #include "robot_interface2/motor/MotorController.hpp"
 #include "raspiHardware/GPIO.hpp"
 #include "raspiHardware/SPI.hpp"
 #include "raspiHardware/Mmap.hpp"
-
-using namespace eCAL::protobuf;
 
 int main()
 {

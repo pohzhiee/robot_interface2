@@ -12,7 +12,6 @@ namespace Flysky{
 class iBusParser;
 }
 class UARTDMAReader;
-using eCAL::protobuf::CSubscriber;
 using eCAL::protobuf::CPublisher;
 class FlyskyRemoteReceiver{
 public:
@@ -23,9 +22,6 @@ private:
     std::unique_ptr<CPublisher<robot_interface::FlyskyMessage>> flyskyMessagePub_;
     std::unique_ptr<UARTDMAReader> uart_;
     std::unique_ptr<Flysky::iBusParser> iBusParser_;
-    GPIO_Output<6> pin6;
-    GPIO_Output<16> pin16;
-    GPIO_Output<26> pin26;
     std::thread runThread_;
     uint32_t msgCount_{0};
 };

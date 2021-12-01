@@ -4,7 +4,6 @@
 #include <ecal/msg/protobuf/subscriber.h>
 #include "robot_interface2/motor/MotorController.hpp"
 #include "raspiHardware/GPIO.hpp"
-#include "raspiHardware/SPI.hpp"
 #include "raspiHardware/Mmap.hpp"
 #include <chrono>
 #include <thread>
@@ -36,7 +35,7 @@ int main()
     for(int i = 0;i<3;i++){
         auto cmdPtr = msg.mutable_commands()->Add();
         cmdPtr->set_motor_id(i);
-        cmdPtr->set_command(robot_interface::MotorCmd_CommandType_READ);
+        cmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
         cmdPtr->set_parameter(0.0);
     }
     sub->AddReceiveCallback(subFunc);

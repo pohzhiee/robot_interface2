@@ -1,5 +1,5 @@
 file(GLOB xstypes_src
-        LIST_DIRECTORIES true "${CMAKE_SOURCE_DIR}/src/xstypes/*.c" "${CMAKE_SOURCE_DIR}/src/*.cpp")
+        LIST_DIRECTORIES true "${CMAKE_SOURCE_DIR}/src/xstypes/*.c" "${CMAKE_SOURCE_DIR}/src/xstypes/*.cpp")
 add_library(xstypes STATIC ${xstypes_src})
 target_include_directories(
         xstypes PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include/xstypes>
