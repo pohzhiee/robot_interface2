@@ -39,7 +39,8 @@ void MTiReceiver::ValidMessageCb(const XsMessage &msg)
     assert(packet.containsCalibratedAcceleration());
     assert(packet.containsCalibratedGyroscopeData());
     auto imuMsg = robot_interface::ImuMessage();
-    imuMsg.set_message_id(packet.packetCounter());
+    imuMsg.set_message_id(msgCount_);
+    msgCount_++;
 
     auto orientationPtr = imuMsg.mutable_base_orientation();
     orientationPtr->set_w(packet.orientationQuaternion().w());
