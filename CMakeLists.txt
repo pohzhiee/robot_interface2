@@ -32,6 +32,13 @@ target_include_directories(
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(mti_receiver PUBLIC eCAL::core robot_interface_protobuf raspi_hardware xstypes)
 
+find_package(hyq_cheetah)
+add_executable(movement_controller src/MovementController.cpp)
+target_include_directories(
+        movement_controller PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(movement_controller PUBLIC eCAL::core robot_interface_protobuf MainController)
+
 
 add_executable(motor_controller_test src/MotorControllerTest.cpp)
 target_include_directories(

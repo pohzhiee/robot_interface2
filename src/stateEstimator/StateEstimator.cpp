@@ -71,15 +71,15 @@ class StateEstimator::Impl
     bool ProcessImuData(robot_interface::StateEstimatorMessage &msg);
     bool ProcessMotorData(robot_interface::StateEstimatorMessage &msg);
     // eCAL pub and subs
-    std::unique_ptr<CSubscriber<robot_interface::MotorFeedbackMsg>> motorFeedbackSub_;
-    std::unique_ptr<CSubscriber<robot_interface::ImuMessage>> imuMessageSub_;
-    std::unique_ptr<CPublisher<robot_interface::StateEstimatorMessage>> stateEstimatorPub_;
+    std::unique_ptr<CSubscriber<robot_interface::MotorFeedbackMsg>> motorFeedbackSub_{nullptr};
+    std::unique_ptr<CSubscriber<robot_interface::ImuMessage>> imuMessageSub_{nullptr};
+    std::unique_ptr<CPublisher<robot_interface::StateEstimatorMessage>> stateEstimatorPub_{nullptr};
     // Subscriber data
-    std::optional<robot_interface::MotorFeedbackMsg> latestMotorFeedback_;
-    std::optional<robot_interface::ImuMessage> latestImuMessage_;
-    std::optional<robot_interface::ImuMessage> lastImuMessage_;
-    std::chrono::time_point<std::chrono::steady_clock> lastImuMessageTime_;
-    std::chrono::time_point<std::chrono::steady_clock> lastMotorFeedbackTime_;
+    std::optional<robot_interface::MotorFeedbackMsg> latestMotorFeedback_{std::nullopt};
+    std::optional<robot_interface::ImuMessage> latestImuMessage_{std::nullopt};
+    std::optional<robot_interface::ImuMessage> lastImuMessage_{std::nullopt};
+    std::chrono::time_point<std::chrono::steady_clock> lastImuMessageTime_{};
+    std::chrono::time_point<std::chrono::steady_clock> lastMotorFeedbackTime_{};
     // Thread management
     std::mutex imuDataMutex_;
     std::mutex motorDataMutex_;
@@ -87,7 +87,7 @@ class StateEstimator::Impl
     std::atomic<bool> stopRequested_{false};
     // Filtering data and objects
     std::array<Iir::Butterworth::HighPass<4>, 3> butterworthFilters_{};
-    TrapzIntegrator<3> integrator_;
+    TrapzIntegrator<3> integrator_{};
 
     uint32_t msgCount_{0};
 };
@@ -116,7 +116,7 @@ void StateEstimator::Impl::RunFunction()
 bool StateEstimator::Impl::ProcessImuData(robot_interface::StateEstimatorMessage &msg)
 {
     robot_interface::ImuMessage latestImuMessage;
-    uint64_t timeDiff;
+    uint64_t imuSampleTimeDiff;
     {
         std::lock_guard lock(imuDataMutex_);
         if (!lastImuMessage_.has_value())
@@ -132,7 +132,7 @@ bool StateEstimator::Impl::ProcessImuData(robot_interface::StateEstimatorMessage
 
         lastImuMessage_.value();
         latestImuMessage = latestImuMessage_.value();
-        timeDiff = latestImuMessage.sample_time_ns() - lastImuMessage_->sample_time_ns();
+        imuSampleTimeDiff = latestImuMessage.sample_time_ns() - lastImuMessage_->sample_time_ns();
     }
     Eigen::Vector3d baseLinAcc(latestImuMessage.base_linear_acceleration().x(),
                                latestImuMessage.base_linear_acceleration().y(),
@@ -150,7 +150,7 @@ bool StateEstimator::Impl::ProcessImuData(robot_interface::StateEstimatorMessage
         auto &butterworthFilter = butterworthFilters_.at(i);
         worldLinAccFiltered(i) = butterworthFilter.filter(worldLinAcc(i));
     }
-    auto worldLinVel = integrator_.AddData(worldLinAccFiltered, static_cast<double>(timeDiff / 1'000'000) * 0.001);
+    auto worldLinVel = integrator_.AddData(worldLinAccFiltered, static_cast<double>(imuSampleTimeDiff / 1'000'000) * 0.001);
     Eigen::Vector3d worldAngularVel = baseToWorldRotMat * baseAngularVel;
 
     msg.set_message_id(msgCount_);
