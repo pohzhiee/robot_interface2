@@ -55,6 +55,10 @@ FlyskyRemoteReceiver::FlyskyRemoteReceiver(uintptr_t gpioMmapPtr, uintptr_t uart
     });
     iBusParser_->AddCallback([&](auto state, auto info) {
         auto protoMsg = FlyskyStateToProto(state);
+        using Flysky::SwitchState;
+        if(state.SwitchA == SwitchState::Unknown || state.SwitchB == SwitchState::Unknown || state.SwitchC == SwitchState::Unknown){
+            return;
+        }
         protoMsg.set_message_id(msgCount_);
         msgCount_++;
         flyskyMessagePub_->Send(protoMsg);
