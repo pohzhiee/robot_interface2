@@ -1,7 +1,19 @@
 #include "robot_interface2/motor/MotorController.hpp"
+#include "raspiHardware/SPI.hpp"
 #include "raspiHardware/SimultaneousSPI.hpp"
 #include "robot_interface2/InterfaceData.hpp"
+#include <chrono>
 #include <cstring>
+#include <ecal/ecal.h>
+#include <ecal/msg/protobuf/publisher.h>
+#include <ecal/msg/protobuf/subscriber.h>
+#include <robot_interface_protobuf/motor_cmd_msg.pb.h>
+#include <robot_interface_protobuf/motor_feedback_msg.pb.h>
+#include <thread>
+using namespace std::chrono;
+using namespace std::chrono_literals;
+using eCAL::protobuf::CPublisher;
+using eCAL::protobuf::CSubscriber;
 namespace
 {
 MotorCommandType ProtoMotorCmdToInterface(robot_interface::MotorCmd_CommandType cmdType)
@@ -35,19 +47,49 @@ template <typename T> inline std::array<uint8_t, sizeof(T)> BytesFrom(T input)
 
 namespace robot_interface2
 {
+class MotorController::Impl
+{
+  public:
+    Impl(uintptr_t gpioMmapPtr, uintptr_t spiMmapPtr);
+    ~Impl();
 
-MotorController::MotorController(uintptr_t gpioMmapPtr, uintptr_t spiMmapPtr)
+  private:
+    void RunLoop();
+    std::unique_ptr<CSubscriber<robot_interface::MotorCmdMsg>> motorCommandSub_;
+    std::unique_ptr<CPublisher<robot_interface::MotorFeedbackMsg>> motorFeedbackPub_;
+    void OnCmdMsg(const char *topic_name_, const robot_interface::MotorCmdMsg &msg, long long time_, long long clock_);
+    time_point<steady_clock> lastCmdMsgTime_{};
+    std::unique_ptr<RpiSPIDriver> spi_;
+    std::thread runThread_;
+    std::mutex timeMutex_, spiMutex_;
+    std::atomic<bool> stopRequested_{false};
+};
+
+MotorController::Impl::Impl(uintptr_t gpioMmapPtr, uintptr_t spiMmapPtr)
     : motorCommandSub_(std::make_unique<CSubscriber<robot_interface::MotorCmdMsg>>("motor_cmd")),
       motorFeedbackPub_(std::make_unique<CPublisher<robot_interface::MotorFeedbackMsg>>("motor_feedback")),
       spi_(std::make_unique<SimultaneousSPI>(SPISettings{}, gpioMmapPtr, spiMmapPtr))
 {
+    lastCmdMsgTime_ = steady_clock::now();
     auto a = [this](auto *topicName, const auto &msg, auto time, auto clock, auto id) {
+        {
+            std::lock_guard lock(timeMutex_);
+            lastCmdMsgTime_ = steady_clock::now();
+        }
         OnCmdMsg(topicName, msg, time, clock);
     };
     motorCommandSub_->AddReceiveCallback(a);
+    runThread_ = std::thread([&](){RunLoop();});
 }
-void MotorController::OnCmdMsg(const char *topic_name_, const robot_interface::MotorCmdMsg &msg, long long int time_,
-                               long long int clock_)
+
+MotorController::Impl::~Impl()
+{
+    stopRequested_ = true;
+    runThread_.join();
+}
+
+void MotorController::Impl::OnCmdMsg(const char *topic_name_, const robot_interface::MotorCmdMsg &msg,
+                                     long long int time_, long long int clock_)
 {
     // Create message
     std::array<MotorCommandSingle, 12> motorCommandSingles{};
@@ -70,29 +112,32 @@ void MotorController::OnCmdMsg(const char *topic_name_, const robot_interface::M
                                 [](const auto &cmd) { return cmd.motor_id() <= 5; });
     // Move all relevant data into the message, if not dirty we use the ignore command
     MotorFeedbackFull frontFeedback, hindFeedback;
-    if (hasFront)
     {
-        CommandMessage message{
-            .messageType = MessageType::CommandMessage,
-            .MessageId = msg.message_id(),
-        };
-        std::memcpy(message.MotorCommands.data(), motorCommandSingles.data(), sizeof(MotorCommandSingle) * 6);
-        message.GenerateCRC();
-        spi_->AddTransceiveData(0, span<uint8_t>(reinterpret_cast<uint8_t *>(&message), sizeof(message)),
-                                span<uint8_t>(reinterpret_cast<uint8_t *>(&frontFeedback), sizeof(frontFeedback)));
+        std::lock_guard lock(spiMutex_);
+        if (hasFront)
+        {
+            CommandMessage message{
+                .messageType = MessageType::CommandMessage,
+                .MessageId = msg.message_id(),
+            };
+            std::memcpy(message.MotorCommands.data(), motorCommandSingles.data(), sizeof(MotorCommandSingle) * 6);
+            message.GenerateCRC();
+            spi_->AddTransceiveData(0, span<uint8_t>(reinterpret_cast<uint8_t *>(&message), sizeof(message)),
+                                    span<uint8_t>(reinterpret_cast<uint8_t *>(&frontFeedback), sizeof(frontFeedback)));
+        }
+        if (hasHind)
+        {
+            CommandMessage message{
+                .messageType = MessageType::CommandMessage,
+                .MessageId = msg.message_id(),
+            };
+            std::memcpy(message.MotorCommands.data(), motorCommandSingles.data() + 6, sizeof(MotorCommandSingle) * 6);
+            message.GenerateCRC();
+            spi_->AddTransceiveData(6, span<uint8_t>(reinterpret_cast<uint8_t *>(&message), sizeof(message)),
+                                    span<uint8_t>(reinterpret_cast<uint8_t *>(&hindFeedback), sizeof(hindFeedback)));
+        }
+        spi_->Transceive();
     }
-    if (hasHind)
-    {
-        CommandMessage message{
-            .messageType = MessageType::CommandMessage,
-            .MessageId = msg.message_id(),
-        };
-        std::memcpy(message.MotorCommands.data(), motorCommandSingles.data() + 6, sizeof(MotorCommandSingle) * 6);
-        message.GenerateCRC();
-        spi_->AddTransceiveData(6, span<uint8_t>(reinterpret_cast<uint8_t *>(&message), sizeof(message)),
-                                span<uint8_t>(reinterpret_cast<uint8_t *>(&hindFeedback), sizeof(hindFeedback)));
-    }
-    spi_->Transceive();
     std::array<MotorFeedbackSingle, 12> feedbacks;
     robot_interface::MotorFeedbackMsg feedbackMsg;
     if (hasFront)
@@ -127,5 +172,66 @@ void MotorController::OnCmdMsg(const char *topic_name_, const robot_interface::M
     }
     motorFeedbackPub_->Send(feedbackMsg);
 }
+
+void MotorController::Impl::RunLoop()
+{
+    auto next = steady_clock::now() + 50ms;
+    while (!stopRequested_)
+    {
+        std::this_thread::sleep_until(next);
+        if(stopRequested_)
+            return;
+        next = next + duration<int64_t, std::ratio<1, 50>>{1};
+        uint64_t timeDiffMs;
+        {
+            std::lock_guard lock(timeMutex_);
+            timeDiffMs = duration_cast<milliseconds>(steady_clock::now() - lastCmdMsgTime_).count();
+        }
+        if (timeDiffMs < 1000)
+        {
+            continue;
+        }
+        MotorFeedbackFull frontFeedback, hindFeedback;
+        {
+            std::lock_guard lock(spiMutex_);
+            constexpr MotorCommandSingle readCmd =
+                MotorCommandSingle{.CommandType = MotorCommandType::Read, .reserved = 0, .Param = {}, .reserved2 = 0};
+            CommandMessage message{.messageType = MessageType::CommandMessage,
+                                   .MessageId = 1,
+                                   .MotorCommands = {readCmd, readCmd, readCmd, readCmd, readCmd, readCmd}};
+            message.GenerateCRC();
+            spi_->AddTransceiveData(0, span<uint8_t>(reinterpret_cast<uint8_t *>(&message), sizeof(message)),
+                                    span<uint8_t>(reinterpret_cast<uint8_t *>(&frontFeedback), sizeof(frontFeedback)));
+
+            CommandMessage message2 = message;
+            spi_->AddTransceiveData(6, span<uint8_t>(reinterpret_cast<uint8_t *>(&message), sizeof(message)),
+                                    span<uint8_t>(reinterpret_cast<uint8_t *>(&hindFeedback), sizeof(hindFeedback)));
+            spi_->Transceive();
+        }
+
+        std::array<MotorFeedbackSingle, 12> feedbacks;
+        robot_interface::MotorFeedbackMsg feedbackMsg;
+        std::memcpy(feedbacks.data(), frontFeedback.Feedbacks.data(), sizeof(MotorFeedbackSingle) * 6);
+        std::memcpy(feedbacks.data() + 6, hindFeedback.Feedbacks.data(), sizeof(MotorFeedbackSingle) * 6);
+        for (int i = 0; i < 12; i++)
+        {
+            auto feedbackPtr = feedbackMsg.mutable_feedbacks()->Add();
+            feedbackPtr->set_motor_id(i);
+            feedbackPtr->set_angle(feedbacks.at(i).Angle);
+            feedbackPtr->set_velocity(feedbacks.at(i).Velocity);
+            feedbackPtr->set_torque(feedbacks.at(i).Torque);
+            feedbackPtr->set_temperature(feedbacks.at(i).Temperature);
+            feedbackPtr->set_ready(feedbacks.at(i).Ready);
+        }
+        motorFeedbackPub_->Send(feedbackMsg);
+    }
+}
+
+MotorController::MotorController(uintptr_t gpioMmapPtr, uintptr_t spiMmapPtr)
+    : impl_(std::make_unique<Impl>(gpioMmapPtr, spiMmapPtr))
+{
+}
+
+MotorController::~MotorController() = default;
 
 } // namespace robot_interface2

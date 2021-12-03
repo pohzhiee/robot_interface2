@@ -7,6 +7,8 @@
 #include <ecal/msg/protobuf/subscriber.h>
 #include <iostream>
 #include <thread>
+#include <robot_interface_protobuf/motor_cmd_msg.pb.h>
+#include <robot_interface_protobuf/motor_feedback_msg.pb.h>
 using namespace std::chrono;
 using namespace std::chrono_literals;
 
@@ -24,14 +26,12 @@ int main()
     if (gpioMmapPtr == 0)
         return 1;
     auto pin6 = GPIO_Output<6>(gpioMmapPtr);
-    auto pin16 = GPIO_Output<16>(gpioMmapPtr);
-    auto pin26 = GPIO_Output<26>(gpioMmapPtr);
     auto pub = std::make_unique<CPublisher<robot_interface::MotorCmdMsg>>("motor_cmd");
     auto sub = std::make_unique<CSubscriber<robot_interface::MotorFeedbackMsg>>("motor_feedback");
     auto subFunc = [&](auto *topicName, const auto &msg, auto time, auto clock, auto id) { pin6.Toggle(); };
     auto next = std::chrono::steady_clock::now() + 5ms;
     robot_interface::MotorCmdMsg msg;
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 12; i++)
     {
         auto cmdPtr = msg.mutable_commands()->Add();
         cmdPtr->set_motor_id(i);
@@ -51,9 +51,7 @@ int main()
         std::this_thread::sleep_until(next);
         next = next + duration<int64_t, std::ratio<1, 800>>{1};
         msg.set_message_id(i + 1000);
-        pin16.Toggle();
         pub->Send(msg);
-        pin26.Toggle();
     }
 
     std::cout << "FINISHED" << std::endl;
