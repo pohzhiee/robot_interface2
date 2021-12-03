@@ -11,6 +11,7 @@
 #include <robot_interface_protobuf/state_estimator_message.pb.h>
 #include <spdlog/spdlog.h>
 #include <thread>
+#include <optional>
 
 using namespace hyq_cheetah;
 using namespace eCAL::protobuf;
@@ -59,20 +60,16 @@ class SomeClass
     explicit SomeClass(const std::string &robotName);
     ~SomeClass();
 
-    std::unique_ptr<CSubscriber<robot_interface::StateEstimatorMessage>> stateEstimatorSub_;
-    std::unique_ptr<CSubscriber<robot_interface::FlyskyMessage>> flyskySub_;
-    std::unique_ptr<CPublisher<robot_interface::MotorCmdMsg>> motorCmdPub_;
-    void OnStateEstimatorMsg(const char *topic_name_, const robot_interface::StateEstimatorMessage &msg,
-                             long long time_, long long clock_);
-    void OnFlyskyMsg(const char *topic_name_, const robot_interface::FlyskyMessage &msg, long long time_,
-                     long long clock_);
-
 //    std::unique_ptr<RecoveryStandController> recoveryStandController_;
     std::unique_ptr<MainController> mainController_;
 
     void RunLoop();
 
   private:
+    // Pub subs
+    std::unique_ptr<CSubscriber<robot_interface::StateEstimatorMessage>> stateEstimatorSub_;
+    std::unique_ptr<CSubscriber<robot_interface::FlyskyMessage>> flyskySub_;
+    std::unique_ptr<CPublisher<robot_interface::MotorCmdMsg>> motorCmdPub_;
     // Subscriber data
     std::optional<robot_interface::FlyskyMessage> latestFlyskyMessage_{std::nullopt};
     std::optional<robot_interface::StateEstimatorMessage> latestStateEstimatorMessage_{std::nullopt};
@@ -86,15 +83,6 @@ class SomeClass
     std::chrono::time_point<std::chrono::high_resolution_clock> mainControllerStartTime_{};
 };
 
-void SomeClass::OnStateEstimatorMsg(const char *topic_name_, const robot_interface::StateEstimatorMessage &msg,
-                                    long long time_, long long clock_)
-{
-}
-void SomeClass::OnFlyskyMsg(const char * /*topic_name_*/, const robot_interface::FlyskyMessage &msg, long long time_,
-                            long long clock_)
-{
-    latestFlyskyMessage_ = msg;
-}
 
 SomeClass::SomeClass(const std::string &robotName)
     : stateEstimatorSub_(std::make_unique<CSubscriber<robot_interface::StateEstimatorMessage>>("state_estimator")),

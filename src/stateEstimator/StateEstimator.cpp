@@ -10,6 +10,7 @@
 #include <robot_interface_protobuf/motor_feedback_msg.pb.h>
 #include <robot_interface_protobuf/state_estimator_message.pb.h>
 #include <thread>
+#include <optional>
 using namespace std::chrono_literals;
 using namespace std::chrono;
 using eCAL::protobuf::CPublisher;

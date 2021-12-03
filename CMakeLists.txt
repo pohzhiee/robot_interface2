@@ -12,6 +12,7 @@ include(cmake/lint-targets.cmake)
 include(cmake/raspi_hardware.cmake)
 include(cmake/xstypes.cmake)
 
+find_package(urdfdom REQUIRED)
 find_package(eCAL REQUIRED)
 find_package(robot_interface_protobuf REQUIRED)
 add_executable(motor_controller src/motor/MotorControllerExec.cpp src/motor/MotorController.cpp)
@@ -39,6 +40,11 @@ target_include_directories(
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(movement_controller PUBLIC eCAL::core robot_interface_protobuf MainController)
 
+add_executable(robot_system_pub src/RobotSystemPub.cpp)
+target_include_directories(
+        robot_system_pub PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(robot_system_pub PUBLIC eCAL::core robot_interface_protobuf Eigen3::Eigen)
 
 add_executable(motor_controller_test src/MotorControllerTest.cpp)
 target_include_directories(
