@@ -2,6 +2,7 @@
 #include "raspiHardware/SPI.hpp"
 #include "raspiHardware/SimultaneousSPI.hpp"
 #include "robot_interface2/InterfaceData.hpp"
+#include <Eigen/Core>
 #include <chrono>
 #include <cstring>
 #include <ecal/ecal.h>
@@ -55,6 +56,7 @@ class MotorController::Impl
 
   private:
     void RunLoop();
+    void SetConfig();
     std::unique_ptr<CSubscriber<robot_interface::MotorCmdMsg>> motorCommandSub_;
     std::unique_ptr<CPublisher<robot_interface::MotorFeedbackMsg>> motorFeedbackPub_;
     void OnCmdMsg(const char *topic_name_, const robot_interface::MotorCmdMsg &msg, long long time_, long long clock_);
@@ -79,7 +81,7 @@ MotorController::Impl::Impl(uintptr_t gpioMmapPtr, uintptr_t spiMmapPtr)
         OnCmdMsg(topicName, msg, time, clock);
     };
     motorCommandSub_->AddReceiveCallback(a);
-    runThread_ = std::thread([&](){RunLoop();});
+    runThread_ = std::thread([&]() { RunLoop(); });
 }
 
 MotorController::Impl::~Impl()
@@ -175,11 +177,13 @@ void MotorController::Impl::OnCmdMsg(const char *topic_name_, const robot_interf
 
 void MotorController::Impl::RunLoop()
 {
+
+    SetConfig();
     auto next = steady_clock::now() + 50ms;
     while (!stopRequested_)
     {
         std::this_thread::sleep_until(next);
-        if(stopRequested_)
+        if (stopRequested_)
             return;
         next = next + duration<int64_t, std::ratio<1, 50>>{1};
         uint64_t timeDiffMs;
@@ -204,7 +208,7 @@ void MotorController::Impl::RunLoop()
                                     span<uint8_t>(reinterpret_cast<uint8_t *>(&frontFeedback), sizeof(frontFeedback)));
 
             CommandMessage message2 = message;
-            spi_->AddTransceiveData(6, span<uint8_t>(reinterpret_cast<uint8_t *>(&message), sizeof(message)),
+            spi_->AddTransceiveData(6, span<uint8_t>(reinterpret_cast<uint8_t *>(&message2), sizeof(message2)),
                                     span<uint8_t>(reinterpret_cast<uint8_t *>(&hindFeedback), sizeof(hindFeedback)));
             spi_->Transceive();
         }
@@ -225,6 +229,55 @@ void MotorController::Impl::RunLoop()
         }
         motorFeedbackPub_->Send(feedbackMsg);
     }
+}
+
+std::pair<ConfigMessage, ConfigMessage> GenerateConfigMessage(MotorConfigType type, span<double, 12> param)
+{
+    ConfigMessage frontConfigmsg, hindConfigMsg;
+    for (size_t i = 0; i < 6; i++)
+    {
+        frontConfigmsg.MotorConfigs.at(i) = MotorConfigSingle{.ConfigType = type, .Data = BytesFrom(param[i])};
+        hindConfigMsg.MotorConfigs.at(i) = MotorConfigSingle{.ConfigType = type, .Data = BytesFrom(param[i + 6])};
+    }
+    frontConfigmsg.GenerateCRC();
+    hindConfigMsg.GenerateCRC();
+    return {frontConfigmsg, hindConfigMsg};
+}
+
+void MotorController::Impl::SetConfig()
+{
+    std::array<double, 12> torqueMultipliers{1.3, 0.85, 0.7, 1.2, 0.9, 0.7, 1.43, 0.89, 0.68, 1.34, 0.92, 0.65};
+    std::array<double, 12> gearRatios{-1.0, 1.0, 1.08, -1.0, -1.0, -1.08, 1.0, 1.0, 1.08, 1.0, -1.0, 1.08};
+    Eigen::Matrix<double, 12, 1> lowerLimitsDeg =
+        (Eigen::Matrix<double, 12, 1>() << -45, -90, -135, -45, -90, -135, -45, -90, -135, -45, -90, -135).finished();
+    Eigen::Matrix<double, 12, 1> lowerLimitsRad = lowerLimitsDeg * M_PI / 180.0;
+    Eigen::Matrix<double, 12, 1> upperLimitsRad = lowerLimitsRad * -1;
+
+    auto [frontGearRatioConfigMsg, hindGearRatioConfigMsg] =
+        GenerateConfigMessage(MotorConfigType::GearRatio, {gearRatios.data(), gearRatios.size()});
+    auto [frontTorqueMultConfigMsg, hindTorqueMultConfigMsg] = GenerateConfigMessage(
+        MotorConfigType::SetTorqueMultiplier, {torqueMultipliers.data(), torqueMultipliers.size()});
+    auto [frontLowerLimConfigMsg, hindLowerLimConfigMsg] = GenerateConfigMessage(
+        MotorConfigType::LowerJointLimit, {lowerLimitsRad.data(), static_cast<uint32_t>(lowerLimitsRad.size())});
+    auto [frontUpperLimConfigMsg, hindUpperLimConfigMsg] = GenerateConfigMessage(
+        MotorConfigType::UpperJointLimit, {upperLimitsRad.data(), static_cast<uint32_t>(upperLimitsRad.size())});
+    MotorFeedbackFull frontFeedback, hindFeedback;
+
+    auto transceive = [&](const ConfigMessage &frontConfig, const ConfigMessage &hindConfig) {
+        spi_->AddTransceiveData(
+            0, span<const uint8_t>(reinterpret_cast<const uint8_t *>(&frontConfig), sizeof(frontConfig)),
+            span<uint8_t>(reinterpret_cast<uint8_t *>(&frontFeedback), sizeof(frontFeedback)));
+        spi_->AddTransceiveData(6,
+                                span<const uint8_t>(reinterpret_cast<const uint8_t *>(&hindConfig), sizeof(hindConfig)),
+                                span<uint8_t>(reinterpret_cast<uint8_t *>(&hindFeedback), sizeof(hindFeedback)));
+        spi_->Transceive();
+        std::this_thread::sleep_for(5ms);
+    };
+
+    transceive(frontGearRatioConfigMsg, hindGearRatioConfigMsg);
+    transceive(frontTorqueMultConfigMsg, frontTorqueMultConfigMsg);
+    transceive(frontUpperLimConfigMsg, hindUpperLimConfigMsg);
+    transceive(frontLowerLimConfigMsg, hindLowerLimConfigMsg);
 }
 
 MotorController::MotorController(uintptr_t gpioMmapPtr, uintptr_t spiMmapPtr)
