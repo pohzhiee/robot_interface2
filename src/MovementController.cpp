@@ -6,12 +6,12 @@
 #include <ecal/msg/protobuf/publisher.h>
 #include <ecal/msg/protobuf/subscriber.h>
 #include <hyq_cheetah/helpers/config.hpp>
+#include <optional>
 #include <robot_interface_protobuf/flysky_message.pb.h>
 #include <robot_interface_protobuf/motor_cmd_msg.pb.h>
 #include <robot_interface_protobuf/state_estimator_message.pb.h>
 #include <spdlog/spdlog.h>
 #include <thread>
-#include <optional>
 
 using namespace hyq_cheetah;
 using namespace eCAL::protobuf;
@@ -54,18 +54,34 @@ hyq_cheetah::UserInput UserInputFromFlyskyProtobuf(const robot_interface::Flysky
 }
 } // namespace
 
+enum class RunMode
+{
+    ZeroTorque,
+    ZeroPosition,
+    Recovery,
+    BalanceWalk
+};
+
 class SomeClass
 {
   public:
     explicit SomeClass(const std::string &robotName);
     ~SomeClass();
 
-//    std::unique_ptr<RecoveryStandController> recoveryStandController_;
-    std::unique_ptr<MainController> mainController_;
-
     void RunLoop();
+    std::optional<robot_interface::MotorCmdMsg> RunBalanceController(
+        const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
+        const robot_interface::FlyskyMessage &flyskyMsg);
+    robot_interface::MotorCmdMsg RunRecoveryStandController(
+        const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
+        const robot_interface::FlyskyMessage &flyskyMsg);
+    robot_interface::MotorCmdMsg RunZeroTorque();
 
   private:
+    std::optional<robot_interface::StateEstimatorMessage> GetLatestStateEstimatorMsg();
+    std::optional<robot_interface::FlyskyMessage> GetLatestFlyskyMsg();
+    std::unique_ptr<RecoveryStandController> recoveryStandController_;
+    std::unique_ptr<MainController> mainController_;
     // Pub subs
     std::unique_ptr<CSubscriber<robot_interface::StateEstimatorMessage>> stateEstimatorSub_;
     std::unique_ptr<CSubscriber<robot_interface::FlyskyMessage>> flyskySub_;
@@ -81,8 +97,13 @@ class SomeClass
     std::thread runThread_;
     std::atomic<bool> stopRequested_{false};
     std::chrono::time_point<std::chrono::high_resolution_clock> mainControllerStartTime_{};
-};
+    std::chrono::time_point<std::chrono::high_resolution_clock> recoveryControllerStartTime_{};
 
+    // State management
+    std::atomic<RunMode> runMode_{RunMode::ZeroTorque};
+    RunMode previousRunMode_{RunMode::ZeroTorque};
+    std::uint64_t messageCount_{0};
+};
 
 SomeClass::SomeClass(const std::string &robotName)
     : stateEstimatorSub_(std::make_unique<CSubscriber<robot_interface::StateEstimatorMessage>>("state_estimator")),
@@ -94,6 +115,7 @@ SomeClass::SomeClass(const std::string &robotName)
     auto gait = std::make_shared<Gait>(mainControllerConfig.gaitConfig);
     auto balanceController = std::make_shared<MPC>(mainControllerConfig.mpcConfig);
     mainController_ = std::make_unique<MainController>(mainControllerConfig, balanceController, gait, urdfPath);
+    recoveryStandController_ = std::make_unique<RecoveryStandController>(mainControllerConfig.recoveryConfig);
     stateEstimatorSub_->AddReceiveCallback(
         [&](auto, const robot_interface::StateEstimatorMessage &msg, auto, auto, auto) {
             std::lock_guard lock(stateEstimatorMutex_);
@@ -104,8 +126,25 @@ SomeClass::SomeClass(const std::string &robotName)
         std::lock_guard lock(flyskyMutex_);
         latestFlyskyMessage_ = msg;
         lastFlyskyMessageTime_ = steady_clock::now();
+        if (msg.switch_a() == robot_interface::FlyskyMessage_SwitchState_DOWN)
+        {
+            runMode_ = RunMode::ZeroTorque;
+            return;
+        }
+        if (msg.switch_e() == robot_interface::FlyskyMessage_SwitchState_DOWN)
+        {
+            runMode_ = RunMode::BalanceWalk;
+            return;
+        }
+        runMode_ = RunMode::Recovery;
     });
     runThread_ = std::thread([&]() { this->RunLoop(); });
+}
+
+SomeClass::~SomeClass()
+{
+    stopRequested_ = true;
+    runThread_.join();
 }
 
 void SomeClass::RunLoop()
@@ -122,72 +161,142 @@ void SomeClass::RunLoop()
         std::this_thread::sleep_until(next);
         next = next + duration<int64_t, std::ratio<1, 200>>{1};
 
-        robot_interface::StateEstimatorMessage latestStateEstimatorMessage;
-        robot_interface::FlyskyMessage latestFlyskyMessage;
-        {
-            std::lock_guard lock(flyskyMutex_);
-            if (!latestFlyskyMessage_.has_value())
-            {
-                spdlog::debug("No flysky message");
-                continue;
-            }
-            if (steady_clock::now() - lastFlyskyMessageTime_ > 500ms)
-            {
-                spdlog::debug("Last flysky message more than 500ms old");
-                latestFlyskyMessage_ = std::nullopt;
-                continue;
-            }
-            latestFlyskyMessage = latestFlyskyMessage_.value();
-        }
-        {
-            std::lock_guard lock(stateEstimatorMutex_);
-            if (!latestStateEstimatorMessage_.has_value())
-            {
-                spdlog::debug("No state estimator message");
-                continue;
-            }
-            if (steady_clock::now() - lastStateEstimatorMessageTime_ > 500ms)
-            {
-                spdlog::debug("Last state estimator message more than 500ms old");
-                latestStateEstimatorMessage_ = std::nullopt;
-                continue;
-            }
-            if (latestStateEstimatorMessage_->joint_positions().size() != 12)
-            {
-                spdlog::debug(fmt::format("Last state estimator message does not have 12 joint positions, has: {}",
-                                          latestStateEstimatorMessage_->joint_positions().size()));
-                continue;
-            }
-            latestStateEstimatorMessage = latestStateEstimatorMessage_.value();
-        }
-
-        ControllerInputData data;
-        data.estimatedState = StateEstimatorDataFromProtobuf(latestStateEstimatorMessage);
-        data.userInput = UserInputFromFlyskyProtobuf(latestFlyskyMessage);
-        data.timeSinceStart =
-            duration_cast<nanoseconds>(high_resolution_clock::now() - mainControllerStartTime_).count();
-        auto output = mainController_->Run(data);
-        if (!output.has_value())
-        {
-            spdlog::debug("Controller generates no output");
+        auto latestStateEstimatorMessage = GetLatestStateEstimatorMsg();
+        if (!latestStateEstimatorMessage.has_value())
             continue;
-        }
-        robot_interface::MotorCmdMsg cmdMsg;
-        auto cmdArrPtr = cmdMsg.mutable_commands();
-        for (int i = 0; i < 12; i++)
+        auto latestFlyskyMessage = GetLatestFlyskyMsg();
+        if (!latestFlyskyMessage.has_value())
+            continue;
+        std::optional<robot_interface::MotorCmdMsg> cmdMsg;
+        switch (runMode_)
         {
-            auto motorCmdPtr = cmdArrPtr->Add();
-            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-            motorCmdPtr->set_motor_id(i);
-            motorCmdPtr->set_parameter(output->commands.at(i));
+        case RunMode::ZeroTorque:
+            cmdMsg = RunZeroTorque();
+            previousRunMode_ = RunMode::ZeroTorque;
+            break;
+        case RunMode::BalanceWalk:
+            if(previousRunMode_ != RunMode::BalanceWalk){
+                mainControllerStartTime_ = high_resolution_clock::now();
+                mainController_->Reset();
+            }
+            cmdMsg = RunBalanceController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
+            previousRunMode_ = RunMode::BalanceWalk;
+            break;
+        case RunMode::Recovery:
+            if(previousRunMode_ != RunMode::Recovery){
+                recoveryControllerStartTime_ = high_resolution_clock::now();
+                recoveryStandController_->Reset();
+            }
+            cmdMsg = RunRecoveryStandController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
+            previousRunMode_ = RunMode::Recovery;
+            break;
+        default:
+            cmdMsg = std::nullopt;
         }
-        motorCmdPub_->Send(cmdMsg);
+        if (!cmdMsg.has_value())
+            continue;
+        motorCmdPub_->Send(cmdMsg.value());
     }
 }
-SomeClass::~SomeClass()
+robot_interface::MotorCmdMsg SomeClass::RunZeroTorque()
 {
-    stopRequested_ = true;
-    runThread_.join();
+    robot_interface::MotorCmdMsg cmdMsg;
+    auto cmdArrPtr = cmdMsg.mutable_commands();
+    for (int i = 0; i < 12; i++)
+    {
+        auto motorCmdPtr = cmdArrPtr->Add();
+        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+        motorCmdPtr->set_motor_id(i);
+        motorCmdPtr->set_parameter(0.0);
+    }
+    cmdMsg.set_message_id(messageCount_);
+    messageCount_++;
+    return cmdMsg;
+}
+std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
+    const robot_interface::StateEstimatorMessage &stateEstimatorMsg, const robot_interface::FlyskyMessage &flyskyMsg)
+{
+
+    ControllerInputData data;
+    data.estimatedState = StateEstimatorDataFromProtobuf(stateEstimatorMsg);
+    data.userInput = UserInputFromFlyskyProtobuf(flyskyMsg);
+    data.timeSinceStart = duration_cast<nanoseconds>(high_resolution_clock::now() - mainControllerStartTime_).count();
+    auto output = mainController_->Run(data);
+    if (!output.has_value())
+    {
+        spdlog::debug("Controller generates no output");
+        return std::nullopt;
+    }
+    robot_interface::MotorCmdMsg cmdMsg;
+    auto cmdArrPtr = cmdMsg.mutable_commands();
+    for (int i = 0; i < 12; i++)
+    {
+        auto motorCmdPtr = cmdArrPtr->Add();
+        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+        motorCmdPtr->set_motor_id(i);
+        motorCmdPtr->set_parameter(output->commands.at(i));
+    }
+    cmdMsg.set_message_id(messageCount_);
+    messageCount_++;
+    return cmdMsg;
+}
+robot_interface::MotorCmdMsg SomeClass::RunRecoveryStandController(
+    const robot_interface::StateEstimatorMessage &stateEstimatorMsg, const robot_interface::FlyskyMessage &flyskyMsg)
+{
+    auto cmd = recoveryStandController_->Run(
+        StateEstimatorDataFromProtobuf(stateEstimatorMsg),
+        duration_cast<nanoseconds>(high_resolution_clock::now() - recoveryControllerStartTime_).count());
+    robot_interface::MotorCmdMsg cmdMsg;
+    auto cmdArrPtr = cmdMsg.mutable_commands();
+    for (int i = 0; i < 12; i++)
+    {
+        auto motorCmdPtr = cmdArrPtr->Add();
+        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+        motorCmdPtr->set_motor_id(i);
+        motorCmdPtr->set_parameter(cmd.at(i));
+    }
+    cmdMsg.set_message_id(messageCount_);
+    messageCount_++;
+    return cmdMsg;
+}
+
+std::optional<robot_interface::StateEstimatorMessage> SomeClass::GetLatestStateEstimatorMsg()
+{
+    std::lock_guard lock(stateEstimatorMutex_);
+    if (!latestStateEstimatorMessage_.has_value())
+    {
+        spdlog::debug("No state estimator message");
+        return std::nullopt;
+    }
+    if (steady_clock::now() - lastStateEstimatorMessageTime_ > 500ms)
+    {
+        spdlog::debug("Last state estimator message more than 500ms old");
+        latestStateEstimatorMessage_ = std::nullopt;
+        return std::nullopt;
+    }
+    if (latestStateEstimatorMessage_->joint_positions().size() != 12)
+    {
+        spdlog::debug(fmt::format("Last state estimator message does not have 12 joint positions, has: {}",
+                                  latestStateEstimatorMessage_->joint_positions().size()));
+        return std::nullopt;
+    }
+    return latestStateEstimatorMessage_.value();
+}
+std::optional<robot_interface::FlyskyMessage> SomeClass::GetLatestFlyskyMsg()
+{
+    std::lock_guard lock(flyskyMutex_);
+    if (!latestFlyskyMessage_.has_value())
+    {
+        spdlog::debug("No flysky message");
+        return std::nullopt;
+    }
+    if (steady_clock::now() - lastFlyskyMessageTime_ > 500ms)
+    {
+        spdlog::debug("Last flysky message more than 500ms old");
+        latestFlyskyMessage_ = std::nullopt;
+        return std::nullopt;
+    }
+    return latestFlyskyMessage_.value();
 }
 
 int main(int argc, char *argv[])

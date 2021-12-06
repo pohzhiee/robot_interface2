@@ -38,7 +38,8 @@ add_executable(movement_controller src/MovementController.cpp)
 target_include_directories(
         movement_controller PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-target_link_libraries(movement_controller PUBLIC eCAL::core robot_interface_protobuf MainController)
+target_link_libraries(movement_controller PUBLIC eCAL::core robot_interface_protobuf MainController
+        RecoveryStandController)
 
 add_executable(robot_system_pub src/RobotSystemPub.cpp)
 target_include_directories(
@@ -55,7 +56,8 @@ target_link_libraries(motor_controller_test PUBLIC eCAL::core robot_interface_pr
 
 find_package(iir REQUIRED)
 find_package(Eigen3 REQUIRED)
-add_executable(state_estimator_pub src/stateEstimator/StateEstimatorExec.cpp src/stateEstimator/StateEstimator.cpp src/stateEstimator/TrapzIntegrator.hpp)
+add_executable(state_estimator_pub src/stateEstimator/StateEstimatorExec.cpp src/stateEstimator/StateEstimator.cpp
+        src/stateEstimator/TrapzIntegrator.hpp)
 target_include_directories(
         state_estimator_pub PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
