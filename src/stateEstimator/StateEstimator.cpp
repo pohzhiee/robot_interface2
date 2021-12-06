@@ -6,11 +6,11 @@
 #include <ecal/msg/protobuf/publisher.h>
 #include <ecal/msg/protobuf/subscriber.h>
 #include <iir/Butterworth.h>
+#include <optional>
 #include <robot_interface_protobuf/imu_message.pb.h>
 #include <robot_interface_protobuf/motor_feedback_msg.pb.h>
 #include <robot_interface_protobuf/state_estimator_message.pb.h>
 #include <thread>
-#include <optional>
 using namespace std::chrono_literals;
 using namespace std::chrono;
 using eCAL::protobuf::CPublisher;
@@ -151,7 +151,8 @@ bool StateEstimator::Impl::ProcessImuData(robot_interface::StateEstimatorMessage
         auto &butterworthFilter = butterworthFilters_.at(i);
         worldLinAccFiltered(i) = butterworthFilter.filter(worldLinAcc(i));
     }
-    auto worldLinVel = integrator_.AddData(worldLinAccFiltered, static_cast<double>(imuSampleTimeDiff / 1'000'000) * 0.001);
+    auto worldLinVel =
+        integrator_.AddData(worldLinAccFiltered, static_cast<double>(imuSampleTimeDiff / 1'000'000) * 0.001);
     Eigen::Vector3d worldAngularVel = baseToWorldRotMat * baseAngularVel;
 
     msg.set_message_id(msgCount_);
@@ -197,8 +198,14 @@ bool StateEstimator::Impl::ProcessMotorData(robot_interface::StateEstimatorMessa
     }
     if (jointPosMap.size() != 12)
     {
-        std::cerr << "Latest motor feedback has less than 12 joint data, some motors not ready, num ready: "
-                  << jointPosMap.size() << std::endl;
+        std::cerr << "Latest motor feedback of id: " << latestMotorFeedback.message_id()
+                  << " has less than 12 joint data, num ready: " << jointPosMap.size() << std::endl;
+        std::cerr << "Ready: ";
+        for (auto &pair : jointPosMap)
+        {
+            std::cerr << pair.first << ' ';
+        }
+        std::cerr << std::endl;
         return false;
     }
     auto jointPosArrPtr = msg.mutable_joint_positions();

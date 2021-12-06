@@ -141,10 +141,10 @@ int main(int argc, char *argv[])
     }
     std::string robotName(argv[1]);
     // initialize eCAL API
-    eCAL::Initialize({}, "HyQ Cheetah Controller");
+    eCAL::Initialize({}, "Robot system publisher");
 
     // set process state
-    eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "HyQ Cheetah Controller");
+    eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "Robot system publisher");
 
     SomeClass a;
     while (eCAL::Ok())
