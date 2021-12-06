@@ -192,8 +192,8 @@ bool StateEstimator::Impl::ProcessMotorData(robot_interface::StateEstimatorMessa
     {
         if (!feedback.ready())
             continue;
-        jointPosMap.at(feedback.motor_id()) = feedback.angle();
-        jointVelMap.at(feedback.motor_id()) = feedback.velocity();
+        jointPosMap[feedback.motor_id()] = feedback.angle();
+        jointVelMap[feedback.motor_id()] = feedback.velocity();
     }
     if (jointPosMap.size() != 12)
     {
