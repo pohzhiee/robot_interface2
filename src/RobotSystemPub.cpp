@@ -99,6 +99,9 @@ SomeClass::SomeClass()
     : stateEstimatorSub_(std::make_unique<CSubscriber<robot_interface::StateEstimatorMessage>>("state_estimator")),
       robotSystemPub_(std::make_unique<CPublisher<robot_interface::RobotSystemMessage>>("robot_system"))
 {
+    stateEstimatorSub_->AddReceiveCallback([&](auto topicName, auto msg, auto time, auto clock, auto id) {
+        this->OnStateEstimatorMsg(topicName, msg, time, clock);
+    });
 }
 
 void SomeClass::OnStateEstimatorMsg(const char * /*topic_name_*/, const robot_interface::StateEstimatorMessage &msg,
