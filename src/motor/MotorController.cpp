@@ -233,7 +233,8 @@ void MotorController::Impl::RunLoop()
 
 std::pair<ConfigMessage, ConfigMessage> GenerateConfigMessage(MotorConfigType type, span<double, 12> param)
 {
-    ConfigMessage frontConfigmsg, hindConfigMsg;
+    ConfigMessage frontConfigmsg{.messageType = MessageType::ConfigMessage, .MessageId = 10101},
+        hindConfigMsg{.messageType = MessageType::ConfigMessage, .MessageId = 10101};
     for (size_t i = 0; i < 6; i++)
     {
         frontConfigmsg.MotorConfigs.at(i) = MotorConfigSingle{.ConfigType = type, .Data = BytesFrom(param[i])};
