@@ -4,6 +4,7 @@ project(robot_interface2)
 set(CMAKE_CXX_STANDARD 17)
 option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 option(BUILD_ROS_STUFF "Build ROS2 stuff" OFF)
+option(BUILD_TESTING "Build tests" OFF)
 
 find_package(Threads)
 
@@ -81,4 +82,8 @@ if (BUILD_ROS_STUFF)
     add_executable(ros_joint_state_to_cmd_pid src/RosJointStateToCmdPubPid.cpp)
     ament_target_dependencies(ros_joint_state_to_cmd_pid rclcpp std_msgs sensor_msgs)
     target_link_libraries(ros_joint_state_to_cmd_pid eCAL::core robot_interface_protobuf)
+endif ()
+
+if (BUILD_TESTING)
+    add_subdirectory(test)
 endif ()
