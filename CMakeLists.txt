@@ -17,11 +17,19 @@ include(cmake/xstypes.cmake)
 find_package(urdfdom REQUIRED)
 find_package(eCAL REQUIRED)
 find_package(robot_interface_protobuf REQUIRED)
+
+add_library(robot_interface_utils src/utils/MessageConversion.cpp)
+target_include_directories(
+        robot_interface_utils PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(robot_interface_utils PUBLIC robot_interface_protobuf raspi_hardware)
+
+
 add_executable(motor_controller src/motor/MotorControllerExec.cpp src/motor/MotorController.cpp)
 target_include_directories(
         motor_controller PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-target_link_libraries(motor_controller PUBLIC eCAL::core robot_interface_protobuf raspi_hardware)
+target_link_libraries(motor_controller PUBLIC eCAL::core robot_interface_protobuf raspi_hardware robot_interface_utils)
 
 add_executable(flysky_remote src/flysky/FlyskyReceiverExec.cpp src/flysky/FlyskyRemoteReceiver.cpp src/flysky/iBusParser.cpp)
 target_include_directories(
