@@ -50,7 +50,6 @@ class SomeNode : public rclcpp::Node
         robot_interface::MotorCmdMsg protoMsg;
         protoMsg.set_message_id(count_);
         count_++;
-        RCLCPP_INFO(this->get_logger(), "N_joints: %d", msg->name.size());
         auto cmdPtr = protoMsg.mutable_commands();
         for (size_t i = 0; i < 12; i++)
         {
@@ -60,6 +59,12 @@ class SomeNode : public rclcpp::Node
             }
             auto cmd = cmdPtr->Add();
             auto id = nameIndexMap_[msg->name.at(i)];
+            if(id < 6){
+                cmd->set_motor_id(id);
+                cmd->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+                cmd->set_parameter(0.0);
+                continue;
+            }
             cmd->set_motor_id(id);
             cmd->set_command(robot_interface::MotorCmd_CommandType_POSITION);
             cmd->set_parameter(msg->position.at(i));
@@ -81,8 +86,8 @@ int main(int argc, char *argv[])
     eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "Ros2 JointState to Cmd");
     auto node = std::make_shared<SomeNode>();
     while(rclcpp::ok())
-        if(!eCAL::Ok())
-            break;
+//        if(!eCAL::Ok())
+//            break;
         rclcpp::spin_some(node);
     rclcpp::shutdown();
     eCAL::Finalize();
