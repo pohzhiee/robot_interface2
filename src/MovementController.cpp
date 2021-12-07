@@ -107,7 +107,8 @@ class SomeClass
 
 SomeClass::SomeClass(const std::string &robotName)
     : stateEstimatorSub_(std::make_unique<CSubscriber<robot_interface::StateEstimatorMessage>>("state_estimator")),
-      flyskySub_(std::make_unique<CSubscriber<robot_interface::FlyskyMessage>>("flysky"))
+      flyskySub_(std::make_unique<CSubscriber<robot_interface::FlyskyMessage>>("flysky")),
+      motorCmdPub_(std::make_unique<CPublisher<robot_interface::MotorCmdMsg>>("motor_cmd"))
 {
     std::string tomlPath = fmt::format("{}{}/controllerConfig.toml", config::install_robots_path, robotName);
     std::string urdfPath = fmt::format("{}{}/{}.urdf", config::install_robots_path, robotName, robotName);
@@ -248,12 +249,19 @@ robot_interface::MotorCmdMsg SomeClass::RunRecoveryStandController(
         duration_cast<nanoseconds>(high_resolution_clock::now() - recoveryControllerStartTime_).count());
     robot_interface::MotorCmdMsg cmdMsg;
     auto cmdArrPtr = cmdMsg.mutable_commands();
+    auto intermediatePos = recoveryStandController_->GetIntermediatePos();
     for (int i = 0; i < 12; i++)
     {
         auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
         motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_parameter(cmd.at(i));
+        if(i<=3){
+            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
+            motorCmdPtr->set_parameter(intermediatePos.at(i));
+        }
+        else{
+            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+            motorCmdPtr->set_parameter(0.0);
+        }
     }
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;
