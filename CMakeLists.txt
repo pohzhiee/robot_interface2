@@ -3,6 +3,7 @@ project(robot_interface2)
 
 set(CMAKE_CXX_STANDARD 17)
 option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
+option(BUILD_ROS_STUFF "Build ROS2 stuff" OFF)
 
 find_package(Threads)
 
@@ -68,3 +69,13 @@ target_link_libraries(state_estimator_pub PUBLIC eCAL::core robot_interface_prot
 install(
         TARGETS motor_controller flysky_remote mti_receiver motor_controller_test state_estimator_pub
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+if (BUILD_ROS_STUFF)
+    find_package(ament_cmake REQUIRED)
+    find_package(rclcpp REQUIRED)
+    find_package(std_msgs REQUIRED)
+    find_package(sensor_msgs REQUIRED)
+    add_executable(talker src/RosJointStateToCmdPub.cpp)
+    ament_target_dependencies(talker rclcpp std_msgs sensor_msgs)
+    target_link_libraries(talker eCAL::core robot_interface_protobuf)
+endif ()
