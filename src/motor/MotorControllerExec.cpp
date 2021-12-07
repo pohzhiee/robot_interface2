@@ -2,6 +2,7 @@
 #include "raspiHardware/Mmap.hpp"
 #include "raspiHardware/SPI.hpp"
 #include "robot_interface2/motor/MotorController.hpp"
+#include "raspiHardware/SimultaneousSPI.hpp"
 #include <ecal/ecal.h>
 #include <iostream>
 
@@ -15,7 +16,8 @@ int main()
 
     uintptr_t gpioMmapPtr = mmapPeriph(GPIO_Base);
     uintptr_t spiMmapPtr = mmapPeriph(SPI_Base);
-    auto a = robot_interface2::MotorController(gpioMmapPtr, spiMmapPtr);
+    auto simulSpi = std::make_shared<SimultaneousSPI>(SPISettings{}, gpioMmapPtr, spiMmapPtr);
+    auto a = robot_interface2::MotorController(std::move(simulSpi));
     while (eCAL::Ok())
     {
         eCAL::Process::SleepMS(100);

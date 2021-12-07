@@ -2,13 +2,14 @@
 #define ROBOT_INTERFACE2_MOTORCONTROLLER_HPP
 #include <memory>
 #include <cstdint>
+class RpiSPIDriver;
 namespace robot_interface2
 {
 class MotorController
 {
   public:
     class Impl;
-    MotorController(uintptr_t gpioMmapPtr, uintptr_t spiMmapPtr);
+    MotorController(std::shared_ptr<RpiSPIDriver> spi);
     ~MotorController();
     std::unique_ptr<Impl> impl_;
 };

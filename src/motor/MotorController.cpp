@@ -51,7 +51,7 @@ namespace robot_interface2
 class MotorController::Impl
 {
   public:
-    Impl(uintptr_t gpioMmapPtr, uintptr_t spiMmapPtr);
+    Impl(std::shared_ptr<RpiSPIDriver> &&spi);
     ~Impl();
 
   private:
@@ -61,25 +61,31 @@ class MotorController::Impl
     std::unique_ptr<CPublisher<robot_interface::MotorFeedbackMsg>> motorFeedbackPub_;
     void OnCmdMsg(const char *topic_name_, const robot_interface::MotorCmdMsg &msg, long long time_, long long clock_);
     time_point<steady_clock> lastCmdMsgTime_{};
-    std::unique_ptr<RpiSPIDriver> spi_;
+    std::shared_ptr<RpiSPIDriver> spi_;
     std::thread runThread_;
     std::mutex timeMutex_, spiMutex_;
     std::atomic<bool> stopRequested_{false};
 };
 
-MotorController::Impl::Impl(uintptr_t gpioMmapPtr, uintptr_t spiMmapPtr)
+MotorController::Impl::Impl(std::shared_ptr<RpiSPIDriver> &&spi)
     : motorCommandSub_(std::make_unique<CSubscriber<robot_interface::MotorCmdMsg>>("motor_cmd")),
       motorFeedbackPub_(std::make_unique<CPublisher<robot_interface::MotorFeedbackMsg>>("motor_feedback")),
-      spi_(std::make_unique<SimultaneousSPI>(SPISettings{}, gpioMmapPtr, spiMmapPtr))
+      spi_(spi)
 {
     lastCmdMsgTime_ = steady_clock::now();
     auto a = [this](auto *topicName, const auto &msg, auto time, auto clock, auto id) {
         {
             std::lock_guard lock(timeMutex_);
+            auto now = steady_clock::now();
+            auto timeDiffMs = duration_cast<milliseconds>(now - lastCmdMsgTime_).count();
             lastCmdMsgTime_ = steady_clock::now();
+            if(timeDiffMs >= 1000) // This means this is the first message in a while, so we ignore the first one
+                return;
+
         }
         OnCmdMsg(topicName, msg, time, clock);
     };
+    SetConfig();
     motorCommandSub_->AddReceiveCallback(a);
     runThread_ = std::thread([&]() { RunLoop(); });
 }
@@ -133,7 +139,7 @@ void MotorController::Impl::OnCmdMsg(const char *topic_name_, const robot_interf
                 .messageType = MessageType::CommandMessage,
                 .MessageId = msg.message_id(),
             };
-            std::memcpy(message.MotorCommands.data(), motorCommandSingles.data() + 6, sizeof(MotorCommandSingle) * 6);
+            std::memcpy(message.MotorCommands.data(), &motorCommandSingles.at(6), sizeof(MotorCommandSingle) * 6);
             message.GenerateCRC();
             spi_->AddTransceiveData(6, span<uint8_t>(reinterpret_cast<uint8_t *>(&message), sizeof(message)),
                                     span<uint8_t>(reinterpret_cast<uint8_t *>(&hindFeedback), sizeof(hindFeedback)));
@@ -178,7 +184,6 @@ void MotorController::Impl::OnCmdMsg(const char *topic_name_, const robot_interf
 void MotorController::Impl::RunLoop()
 {
 
-    SetConfig();
     auto next = steady_clock::now() + 50ms;
     while (!stopRequested_)
     {
@@ -281,9 +286,9 @@ void MotorController::Impl::SetConfig()
     transceive(frontLowerLimConfigMsg, hindLowerLimConfigMsg);
 }
 
-MotorController::MotorController(uintptr_t gpioMmapPtr, uintptr_t spiMmapPtr)
-    : impl_(std::make_unique<Impl>(gpioMmapPtr, spiMmapPtr))
+MotorController::MotorController(std::shared_ptr<RpiSPIDriver> spi)
 {
+    impl_ = std::make_unique<Impl>(std::move(spi));
 }
 
 MotorController::~MotorController() = default;
