@@ -128,7 +128,7 @@ void MotorController::Impl::RunLoop()
 void MotorController::Impl::SetConfig()
 {
     std::array<double, 12> torqueMultipliers{1.3, 0.85, 0.7, 1.2, 0.9, 0.7, 1.43, 0.89, 0.68, 1.34, 0.92, 0.65};
-    std::array<double, 12> gearRatios{-1.0, 1.0, 1.08, -1.0, -1.0, -1.08, 1.0, 1.0, 1.08, 1.0, -1.0, 1.08};
+    std::array<double, 12> gearRatios{-1.0, 1.0, 1.08, -1.0, -1.0, -1.08, 1.0, 1.0, 1.08, 1.0, -1.0, -1.08};
     Eigen::Matrix<double, 12, 1> lowerLimitsDeg =
         (Eigen::Matrix<double, 12, 1>() << -45, -90, -135, -45, -90, -135, -45, -90, -135, -45, -90, -135).finished();
     Eigen::Matrix<double, 12, 1> lowerLimitsRad = lowerLimitsDeg * M_PI / 180.0;
