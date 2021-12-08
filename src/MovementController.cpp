@@ -62,6 +62,21 @@ enum class RunMode
     BalanceWalk
 };
 
+class DummyBalanceController : public BalanceController
+{
+    [[nodiscard]] Eigen::Matrix<double, 3, numLegs> Run(const StateEstimatorData &estimatedState,
+                                                        const UserInput &userInput, const Eigen::Vector3d &desRpy,
+                                                        const Eigen::Matrix<double, 3, numLegs> &footDist,
+                                                        const Gait &gait) const final
+    {
+        return Eigen::Matrix<double, 3, numLegs>::Zero();
+    }
+    void Reset() final
+    {
+        std::cout << "reset" << std::endl;
+    };
+};
+
 class SomeClass
 {
   public:
@@ -115,8 +130,9 @@ SomeClass::SomeClass(const std::string &robotName)
     std::string urdfPath = fmt::format("{}{}/{}.urdf", config::install_robots_path, robotName, robotName);
     auto mainControllerConfig = ConfigFromToml(tomlPath);
     auto gait = std::make_shared<Gait>(mainControllerConfig.gaitConfig);
-    auto balanceController = std::make_shared<MPC>(mainControllerConfig.mpcConfig);
-    mainController_ = std::make_unique<MainController>(mainControllerConfig, balanceController, gait, urdfPath);
+//    auto balanceController = std::make_shared<MPC>(mainControllerConfig.mpcConfig);
+    auto balanceController2 = std::make_shared<DummyBalanceController>();
+    mainController_ = std::make_unique<MainController>(mainControllerConfig, balanceController2, gait, urdfPath);
     recoveryStandController_ = std::make_unique<RecoveryStandController>(mainControllerConfig.recoveryConfig);
     stateEstimatorSub_->AddReceiveCallback(
         [&](auto, const robot_interface::StateEstimatorMessage &msg, auto, auto, auto) {
