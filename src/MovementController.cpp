@@ -137,13 +137,13 @@ SomeClass::SomeClass(const std::string &robotName)
         {
         case robot_interface::FlyskyMessage_SwitchState_UP:
             runMode_ = RunMode::ZeroPosition;
-            break;
+            return;
         case robot_interface::FlyskyMessage_SwitchState_MIDDLE:
             runMode_ = RunMode::Recovery;
-            break;
+            return;
         case robot_interface::FlyskyMessage_SwitchState_DOWN:
             runMode_ = RunMode::BalanceWalk;
-            break;
+            return;
         default:
             break;
         }
