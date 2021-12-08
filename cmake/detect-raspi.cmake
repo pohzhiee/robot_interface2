@@ -1,0 +1,13 @@
+if (EXISTS "/sys/firmware/devicetree/base/model")
+    set(IS_RASPI ON)
+    file(READ /sys/firmware/devicetree/base/model RASPI_MODEL_INFO)
+#    message(WARNING "RASPI INFO: ${RASPI_MODEL_INFO}")
+    if (RASPI_MODEL_INFO MATCHES "Raspberry Pi 4")
+        set(RASPI_MODEL_NUM 4)
+        message(INFO "Is raspberry pi 4")
+    endif ()
+else ()
+    set(IS_RASPI OFF)
+endif ()
+
+message(INFO "IS_RASPI: ${IS_RASPI}")

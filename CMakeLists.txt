@@ -11,6 +11,7 @@ find_package(Threads)
 include(GNUInstallDirs)
 include(cmake/lint-targets.cmake)
 
+include(cmake/detect-raspi.cmake)
 include(cmake/raspi_hardware.cmake)
 include(cmake/xstypes.cmake)
 
@@ -23,7 +24,6 @@ target_include_directories(
         robot_interface_utils PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(robot_interface_utils PUBLIC robot_interface_protobuf raspi_hardware)
-
 
 add_executable(motor_controller src/motor/MotorControllerExec.cpp src/motor/MotorController.cpp)
 target_include_directories(
