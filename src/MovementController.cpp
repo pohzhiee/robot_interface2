@@ -76,6 +76,7 @@ class SomeClass
         const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
         const robot_interface::FlyskyMessage &flyskyMsg);
     robot_interface::MotorCmdMsg RunZeroTorque();
+    robot_interface::MotorCmdMsg RunZeroPosition();
 
   private:
     std::optional<robot_interface::StateEstimatorMessage> GetLatestStateEstimatorMsg();
@@ -132,12 +133,21 @@ SomeClass::SomeClass(const std::string &robotName)
             runMode_ = RunMode::ZeroTorque;
             return;
         }
-        if (msg.switch_e() == robot_interface::FlyskyMessage_SwitchState_DOWN)
+        switch (msg.switch_b())
         {
+        case robot_interface::FlyskyMessage_SwitchState_UP:
+            runMode_ = RunMode::ZeroPosition;
+            break;
+        case robot_interface::FlyskyMessage_SwitchState_MIDDLE:
+            runMode_ = RunMode::Recovery;
+            break;
+        case robot_interface::FlyskyMessage_SwitchState_DOWN:
             runMode_ = RunMode::BalanceWalk;
-            return;
+            break;
+        default:
+            break;
         }
-        runMode_ = RunMode::Recovery;
+        runMode_ = RunMode::ZeroTorque;
     });
     runThread_ = std::thread([&]() { this->RunLoop(); });
 }
@@ -175,6 +185,10 @@ void SomeClass::RunLoop()
             cmdMsg = RunZeroTorque();
             previousRunMode_ = RunMode::ZeroTorque;
             break;
+        case RunMode::ZeroPosition:
+            cmdMsg = RunZeroPosition();
+            previousRunMode_ = RunMode::ZeroPosition;
+            break;
         case RunMode::BalanceWalk:
             if (previousRunMode_ != RunMode::BalanceWalk)
             {
@@ -209,6 +223,21 @@ robot_interface::MotorCmdMsg SomeClass::RunZeroTorque()
     {
         auto motorCmdPtr = cmdArrPtr->Add();
         motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+        motorCmdPtr->set_motor_id(i);
+        motorCmdPtr->set_parameter(0.0);
+    }
+    cmdMsg.set_message_id(messageCount_);
+    messageCount_++;
+    return cmdMsg;
+}
+robot_interface::MotorCmdMsg SomeClass::RunZeroPosition()
+{
+    robot_interface::MotorCmdMsg cmdMsg;
+    auto cmdArrPtr = cmdMsg.mutable_commands();
+    for (int i = 0; i < 12; i++)
+    {
+        auto motorCmdPtr = cmdArrPtr->Add();
+        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
         motorCmdPtr->set_motor_id(i);
         motorCmdPtr->set_parameter(0.0);
     }
@@ -252,12 +281,19 @@ robot_interface::MotorCmdMsg SomeClass::RunRecoveryStandController(
     robot_interface::MotorCmdMsg cmdMsg;
     auto cmdArrPtr = cmdMsg.mutable_commands();
     auto intermediatePos = recoveryStandController_->GetIntermediatePos();
-    for (int i = 0; i < 12; i++)
+    for (int i = 0; i < 6; i++)
     {
         auto motorCmdPtr = cmdArrPtr->Add();
         motorCmdPtr->set_motor_id(i);
         motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
         motorCmdPtr->set_parameter(intermediatePos.at(i));
+    }
+    for (int i = 6; i < 12; i++)
+    {
+        auto motorCmdPtr = cmdArrPtr->Add();
+        motorCmdPtr->set_motor_id(i);
+        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+        motorCmdPtr->set_parameter(cmd.at(i));
     }
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;
