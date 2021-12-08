@@ -186,7 +186,7 @@ void SomeClass::RunLoop()
             next = loopStartTime;
         }
         std::this_thread::sleep_until(next);
-        next = next + duration<int64_t, std::ratio<1, 200>>{1};
+        next = next + duration<int64_t, std::ratio<1, 800>>{1};
 
         auto latestStateEstimatorMessage = GetLatestStateEstimatorMsg();
         if (!latestStateEstimatorMessage.has_value())
@@ -297,14 +297,8 @@ robot_interface::MotorCmdMsg SomeClass::RunRecoveryStandController(
     robot_interface::MotorCmdMsg cmdMsg;
     auto cmdArrPtr = cmdMsg.mutable_commands();
     auto intermediatePos = recoveryStandController_->GetIntermediatePos();
-    for (int i = 0; i < 6; i++)
-    {
-        auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
-        motorCmdPtr->set_parameter(intermediatePos.at(i));
-    }
-    for (int i = 6; i < 12; i++)
+
+    for (int i = 0; i < 12; i++)
     {
         auto motorCmdPtr = cmdArrPtr->Add();
         motorCmdPtr->set_motor_id(i);
