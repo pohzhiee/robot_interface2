@@ -176,7 +176,8 @@ void SomeClass::RunLoop()
             previousRunMode_ = RunMode::ZeroTorque;
             break;
         case RunMode::BalanceWalk:
-            if(previousRunMode_ != RunMode::BalanceWalk){
+            if (previousRunMode_ != RunMode::BalanceWalk)
+            {
                 mainControllerStartTime_ = high_resolution_clock::now();
                 mainController_->Reset();
             }
@@ -184,7 +185,8 @@ void SomeClass::RunLoop()
             previousRunMode_ = RunMode::BalanceWalk;
             break;
         case RunMode::Recovery:
-            if(previousRunMode_ != RunMode::Recovery){
+            if (previousRunMode_ != RunMode::Recovery)
+            {
                 recoveryControllerStartTime_ = high_resolution_clock::now();
                 recoveryStandController_->Reset();
             }
@@ -254,14 +256,8 @@ robot_interface::MotorCmdMsg SomeClass::RunRecoveryStandController(
     {
         auto motorCmdPtr = cmdArrPtr->Add();
         motorCmdPtr->set_motor_id(i);
-        if(i<=3){
-            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
-            motorCmdPtr->set_parameter(intermediatePos.at(i));
-        }
-        else{
-            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-            motorCmdPtr->set_parameter(0.0);
-        }
+        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
+        motorCmdPtr->set_parameter(intermediatePos.at(i));
     }
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;

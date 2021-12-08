@@ -59,12 +59,6 @@ class SomeNode : public rclcpp::Node
             }
             auto cmd = cmdPtr->Add();
             auto id = nameIndexMap_[msg->name.at(i)];
-            if(id < 6){
-                cmd->set_motor_id(id);
-                cmd->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-                cmd->set_parameter(0.0);
-                continue;
-            }
             cmd->set_motor_id(id);
             cmd->set_command(robot_interface::MotorCmd_CommandType_POSITION);
             cmd->set_parameter(msg->position.at(i));
