@@ -80,7 +80,7 @@ class DummyBalanceController : public BalanceController
 class SomeClass
 {
   public:
-    explicit SomeClass(const std::string &robotName);
+    explicit SomeClass(const std::string &robotName, std::optional<int> activeLegNum);
     ~SomeClass();
 
     void RunLoop();
@@ -94,6 +94,7 @@ class SomeClass
     robot_interface::MotorCmdMsg RunZeroPosition();
 
   private:
+    std::optional<int> activelegNum_{std::nullopt};
     std::optional<robot_interface::StateEstimatorMessage> GetLatestStateEstimatorMsg();
     std::optional<robot_interface::FlyskyMessage> GetLatestFlyskyMsg();
     std::unique_ptr<RecoveryStandController> recoveryStandController_;
@@ -121,8 +122,9 @@ class SomeClass
     std::uint64_t messageCount_{0};
 };
 
-SomeClass::SomeClass(const std::string &robotName)
-    : stateEstimatorSub_(std::make_unique<CSubscriber<robot_interface::StateEstimatorMessage>>("state_estimator")),
+SomeClass::SomeClass(const std::string &robotName, std::optional<int> activeLegNum)
+    : activelegNum_(activeLegNum),
+      stateEstimatorSub_(std::make_unique<CSubscriber<robot_interface::StateEstimatorMessage>>("state_estimator")),
       flyskySub_(std::make_unique<CSubscriber<robot_interface::FlyskyMessage>>("flysky")),
       motorCmdPub_(std::make_unique<CPublisher<robot_interface::MotorCmdMsg>>("motor_cmd"))
 {
@@ -130,7 +132,7 @@ SomeClass::SomeClass(const std::string &robotName)
     std::string urdfPath = fmt::format("{}{}/{}.urdf", config::install_robots_path, robotName, robotName);
     auto mainControllerConfig = ConfigFromToml(tomlPath);
     auto gait = std::make_shared<Gait>(mainControllerConfig.gaitConfig);
-//    auto balanceController = std::make_shared<MPC>(mainControllerConfig.mpcConfig);
+    //    auto balanceController = std::make_shared<MPC>(mainControllerConfig.mpcConfig);
     auto balanceController2 = std::make_shared<DummyBalanceController>();
     mainController_ = std::make_unique<MainController>(mainControllerConfig, balanceController2, gait, urdfPath);
     recoveryStandController_ = std::make_unique<RecoveryStandController>(mainControllerConfig.recoveryConfig);
@@ -235,13 +237,35 @@ robot_interface::MotorCmdMsg SomeClass::RunZeroTorque()
 {
     robot_interface::MotorCmdMsg cmdMsg;
     auto cmdArrPtr = cmdMsg.mutable_commands();
-    for (int i = 0; i < 12; i++)
+
+    if (activelegNum_.has_value())
     {
-        auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_parameter(0.0);
+        for (int i = 0; i < 12; i++)
+        {
+            auto motorCmdPtr = cmdArrPtr->Add();
+            if(i >= activelegNum_.value()*3 && i < (activelegNum_.value()*3)+3){
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+                motorCmdPtr->set_motor_id(i);
+                motorCmdPtr->set_parameter(0.0);
+            }
+            else{
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_READ);
+                motorCmdPtr->set_motor_id(i);
+                motorCmdPtr->set_parameter(0.0);
+            }
+        }
     }
+    else
+    {
+        for (int i = 0; i < 12; i++)
+        {
+            auto motorCmdPtr = cmdArrPtr->Add();
+            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+            motorCmdPtr->set_motor_id(i);
+            motorCmdPtr->set_parameter(0.0);
+        }
+    }
+
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;
     return cmdMsg;
@@ -250,12 +274,33 @@ robot_interface::MotorCmdMsg SomeClass::RunZeroPosition()
 {
     robot_interface::MotorCmdMsg cmdMsg;
     auto cmdArrPtr = cmdMsg.mutable_commands();
-    for (int i = 0; i < 12; i++)
+
+    if (activelegNum_.has_value())
     {
-        auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_parameter(0.0);
+        for (int i = 0; i < 12; i++)
+        {
+            auto motorCmdPtr = cmdArrPtr->Add();
+            if(i >= activelegNum_.value()*3 && i < (activelegNum_.value()*3)+3){
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
+                motorCmdPtr->set_motor_id(i);
+                motorCmdPtr->set_parameter(0.0);
+            }
+            else{
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_READ);
+                motorCmdPtr->set_motor_id(i);
+                motorCmdPtr->set_parameter(0.0);
+            }
+        }
+    }
+    else
+    {
+        for (int i = 0; i < 12; i++)
+        {
+            auto motorCmdPtr = cmdArrPtr->Add();
+            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
+            motorCmdPtr->set_motor_id(i);
+            motorCmdPtr->set_parameter(0.0);
+        }
     }
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;
@@ -277,12 +322,33 @@ std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
     }
     robot_interface::MotorCmdMsg cmdMsg;
     auto cmdArrPtr = cmdMsg.mutable_commands();
-    for (int i = 0; i < 12; i++)
+
+    if (activelegNum_.has_value())
     {
-        auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_parameter(output->commands.at(i));
+        for (int i = 0; i < 12; i++)
+        {
+            auto motorCmdPtr = cmdArrPtr->Add();
+            if(i >= activelegNum_.value()*3 && i < (activelegNum_.value()*3)+3){
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+                motorCmdPtr->set_motor_id(i);
+                motorCmdPtr->set_parameter(output->commands.at(i));
+            }
+            else{
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_READ);
+                motorCmdPtr->set_motor_id(i);
+                motorCmdPtr->set_parameter(0.0);
+            }
+        }
+    }
+    else
+    {
+        for (int i = 0; i < 12; i++)
+        {
+            auto motorCmdPtr = cmdArrPtr->Add();
+            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+            motorCmdPtr->set_motor_id(i);
+            motorCmdPtr->set_parameter(output->commands.at(i));
+        }
     }
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;
@@ -298,12 +364,33 @@ robot_interface::MotorCmdMsg SomeClass::RunRecoveryStandController(
     auto cmdArrPtr = cmdMsg.mutable_commands();
     auto intermediatePos = recoveryStandController_->GetIntermediatePos();
 
-    for (int i = 0; i < 12; i++)
+
+    if (activelegNum_.has_value())
     {
-        auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-        motorCmdPtr->set_parameter(cmd.at(i));
+        for (int i = 0; i < 12; i++)
+        {
+            auto motorCmdPtr = cmdArrPtr->Add();
+            if(i >= activelegNum_.value()*3 && i < (activelegNum_.value()*3)+3){
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+                motorCmdPtr->set_motor_id(i);
+                motorCmdPtr->set_parameter(cmd.at(i));
+            }
+            else{
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_READ);
+                motorCmdPtr->set_motor_id(i);
+                motorCmdPtr->set_parameter(0.0);
+            }
+        }
+    }
+    else
+    {
+        for (int i = 0; i < 12; i++)
+        {
+            auto motorCmdPtr = cmdArrPtr->Add();
+            motorCmdPtr->set_motor_id(i);
+            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+            motorCmdPtr->set_parameter(cmd.at(i));
+        }
     }
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;
@@ -351,19 +438,35 @@ std::optional<robot_interface::FlyskyMessage> SomeClass::GetLatestFlyskyMsg()
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2)
+    if (argc < 3)
     {
-        std::cerr << "Please input robot name, e.g.: ./main_exec spot" << std::endl;
+        std::cerr << "Please input robot name and leg to be controlled, e.g.: ./movement_controller robot1 0"
+                  << std::endl;
         return 1;
     }
     std::string robotName(argv[1]);
+    char *p;
+    auto legNum = strtol(argv[2], &p, 0);
+    if (*p != '\0')
+    {
+        std::cerr << "an invalid character was found before the end of the string" << std::endl;
+        return 1;
+    }
+    if (legNum > 3 || legNum < 0)
+    {
+        std::cerr << "Invalid legnum provided with value of: " << legNum << ", expected to be values of 0,1,2,3"
+                  << std::endl;
+        return 1;
+    }
+    std::cout << "Using legnum of " << legNum << std::endl;
+
     // initialize eCAL API
     eCAL::Initialize({}, "HyQ Cheetah Controller");
 
     // set process state
     eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "HyQ Cheetah Controller");
 
-    SomeClass a(robotName);
+    SomeClass a(robotName, legNum);
     while (eCAL::Ok())
     {
         eCAL::Process::SleepMS(100);
