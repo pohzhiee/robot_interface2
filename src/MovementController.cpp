@@ -329,9 +329,16 @@ std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
         {
             auto motorCmdPtr = cmdArrPtr->Add();
             if(i >= activelegNum_.value()*3 && i < (activelegNum_.value()*3)+3){
-                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-                motorCmdPtr->set_motor_id(i);
-                motorCmdPtr->set_parameter(output->commands.at(i));
+                if(output->qDesValid.at(activelegNum_.value())){
+                    motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
+                    motorCmdPtr->set_motor_id(i);
+                    motorCmdPtr->set_parameter(output->qDes.at(activelegNum_.value())(i%3));
+                }
+                else{
+                    motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+                    motorCmdPtr->set_motor_id(i);
+                    motorCmdPtr->set_parameter(output->commands.at(i));
+                }
             }
             else{
                 motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_READ);
@@ -342,12 +349,20 @@ std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
     }
     else
     {
-        for (int i = 0; i < 12; i++)
-        {
-            auto motorCmdPtr = cmdArrPtr->Add();
-            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-            motorCmdPtr->set_motor_id(i);
-            motorCmdPtr->set_parameter(output->commands.at(i));
+        for(int i = 0;i<4;i++){
+            for(int j = 0;j<3;j++){
+                auto motorCmdPtr = cmdArrPtr->Add();
+                if(output->qDesValid.at(i)){
+                    motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
+                    motorCmdPtr->set_motor_id(i*3+j);
+                    motorCmdPtr->set_parameter(output->qDes.at(i)(j));
+                }
+                else{
+                    motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+                    motorCmdPtr->set_motor_id(i*3+j);
+                    motorCmdPtr->set_parameter(output->commands.at(i));
+                }
+            }
         }
     }
     cmdMsg.set_message_id(messageCount_);
@@ -452,9 +467,9 @@ int main(int argc, char *argv[])
         std::cerr << "an invalid character was found before the end of the string" << std::endl;
         return 1;
     }
-    if (legNum > 3 || legNum < 0)
+    if (legNum > 3 || legNum < -1)
     {
-        std::cerr << "Invalid legnum provided with value of: " << legNum << ", expected to be values of 0,1,2,3"
+        std::cerr << "Invalid legnum provided with value of: " << legNum << ", expected to be values of -1,0,1,2,3"
                   << std::endl;
         return 1;
     }
@@ -465,8 +480,14 @@ int main(int argc, char *argv[])
 
     // set process state
     eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "HyQ Cheetah Controller");
-
-    SomeClass a(robotName, legNum);
+    std::optional<int> legNumInput;
+    if(legNum == -1){
+        legNumInput = std::nullopt;
+    }
+    else{
+        legNumInput = legNum;
+    }
+    SomeClass a(robotName, legNumInput);
     while (eCAL::Ok())
     {
         eCAL::Process::SleepMS(100);
