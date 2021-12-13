@@ -130,7 +130,7 @@ SomeClass::SomeClass(const std::string &robotName)
     std::string urdfPath = fmt::format("{}{}/{}.urdf", config::install_robots_path, robotName, robotName);
     auto mainControllerConfig = ConfigFromToml(tomlPath);
     auto gait = std::make_shared<Gait>(mainControllerConfig.gaitConfig);
-//    auto balanceController = std::make_shared<MPC>(mainControllerConfig.mpcConfig);
+    //    auto balanceController = std::make_shared<MPC>(mainControllerConfig.mpcConfig);
     auto balanceController2 = std::make_shared<DummyBalanceController>();
     mainController_ = std::make_unique<MainController>(mainControllerConfig, balanceController2, gait, urdfPath);
     recoveryStandController_ = std::make_unique<RecoveryStandController>(mainControllerConfig.recoveryConfig);
@@ -277,12 +277,27 @@ std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
     }
     robot_interface::MotorCmdMsg cmdMsg;
     auto cmdArrPtr = cmdMsg.mutable_commands();
-    for (int i = 0; i < 12; i++)
+
+    for (int i = 0; i < 4; i++)
     {
-        auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_parameter(output->commands.at(i));
+        auto swingJointVel = output->swingJointVel.at(i);
+        for (int j = 0; j < 3; j++)
+        {
+            auto motorCmdPtr = cmdArrPtr->Add();
+            if (swingJointVel.has_value())
+            {
+                // This only has value during swing, so during stance we are still using torque controller
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_VELOCITY);
+                motorCmdPtr->set_motor_id(i * 3 + j);
+                motorCmdPtr->set_parameter(swingJointVel.value()(j));
+            }
+            else
+            {
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+                motorCmdPtr->set_motor_id(i * 3 + j);
+                motorCmdPtr->set_parameter(output->commands.at(i * 3 + j));
+            }
+        }
     }
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;
@@ -353,22 +368,20 @@ int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        std::cerr << "Please input robot name, e.g.: ./main_exec spot" << std::endl;
+        std::cerr << "Please input robot name, e.g.: ./movement_controller robot1" << std::endl;
         return 1;
     }
     std::string robotName(argv[1]);
     // initialize eCAL API
-    eCAL::Initialize({}, "HyQ Cheetah Controller");
+    eCAL::Initialize({}, "Robot1 Movement Controller");
 
     // set process state
-    eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "HyQ Cheetah Controller");
+    eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "Robot1 Movement Controller");
 
     SomeClass a(robotName);
     while (eCAL::Ok())
     {
         eCAL::Process::SleepMS(100);
     }
-
-    std::cout << "FINISHED" << std::endl;
     eCAL::Finalize();
 }
