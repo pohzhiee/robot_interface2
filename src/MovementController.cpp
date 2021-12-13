@@ -329,10 +329,11 @@ std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
         {
             auto motorCmdPtr = cmdArrPtr->Add();
             if(i >= activelegNum_.value()*3 && i < (activelegNum_.value()*3)+3){
-                if(output->qDesValid.at(activelegNum_.value())){
-                    motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
+                auto swingJointVel = output->swingJointVel.at(activelegNum_.value());
+                if(swingJointVel.has_value()){
+                    motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_VELOCITY);
                     motorCmdPtr->set_motor_id(i);
-                    motorCmdPtr->set_parameter(output->qDes.at(activelegNum_.value())(i%3));
+                    motorCmdPtr->set_parameter(swingJointVel.value()(i%3));
                 }
                 else{
                     motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
@@ -352,16 +353,16 @@ std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
         for(int i = 0;i<4;i++){
             for(int j = 0;j<3;j++){
                 auto motorCmdPtr = cmdArrPtr->Add();
-                if(output->qDesValid.at(i)){
-                    motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
-                    motorCmdPtr->set_motor_id(i*3+j);
-                    motorCmdPtr->set_parameter(output->qDes.at(i)(j));
-                }
-                else{
+//                if(output->qDesValid.at(i)){
+//                    motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
+//                    motorCmdPtr->set_motor_id(i*3+j);
+//                    motorCmdPtr->set_parameter(output->qDes.at(i)(j));
+//                }
+//                else{
                     motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
                     motorCmdPtr->set_motor_id(i*3+j);
                     motorCmdPtr->set_parameter(output->commands.at(i));
-                }
+//                }
             }
         }
     }
