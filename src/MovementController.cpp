@@ -45,8 +45,8 @@ hyq_cheetah::UserInput UserInputFromFlyskyProtobuf(const robot_interface::Flysky
     // We map to min/max velocity of -2/2 m/s, angular velocity of -2/2 rad/s
     uint32_t ch1Val = msg.channel1();
     auto convert = [](uint32_t val, double sign) -> double { return (-6 + static_cast<double>(val) * 0.004) * sign; };
-    userInput.x_vel_cmd = convert(msg.channel2(), 1.0);
-    userInput.y_vel_cmd = convert(msg.channel1(), -1.0);
+    userInput.x_vel_cmd = convert(msg.channel2(), -1.0);
+    userInput.y_vel_cmd = convert(msg.channel1(), 1.0);
     userInput.yaw_turn_rate = convert(msg.channel4(), -1.0);
     userInput.height = 0.29;
 
