@@ -30,7 +30,7 @@ void DMASPI::InitialiseSPI(uint8_t spiNum, uintptr_t gpioMmapPtr, uintptr_t spiM
     default:
         throw std::runtime_error("Invalid SPI number given");
     }
-    auto spi = GetSPI(spiMmapPtr_, spiNum);
+    auto spi = GetSPI(spiMmapPtr, spiNum);
     // Set CLK
     spi->CLK = CLK;
     // Clear FIFO and set DMAEN

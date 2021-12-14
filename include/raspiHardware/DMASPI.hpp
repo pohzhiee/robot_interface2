@@ -44,10 +44,10 @@ class DMASPI : public RpiSPIDriver
     uintptr_t gpioMmapPtr_{};
     uintptr_t dmaMmapPtr_{};
     uintptr_t spiMmapPtr_{};
-    std::array<span<uint8_t>, 7> rxBufs_;
+    std::array<span<uint8_t>, 7> rxBufs_{};
     UncachedMemBlock conBlockMemBlock_{};
-    span<DMAControlBlock, Page_Size / sizeof(DMAControlBlock)> conBlocks_;
-    span<volatile uint32_t, Page_Size / 4> txBuffer_, rxBuffer_;
+    span<DMAControlBlock, Page_Size / sizeof(DMAControlBlock)> conBlocks_{nullptr, Page_Size / sizeof(DMAControlBlock)};
+    span<volatile uint32_t, Page_Size / 4> txBuffer_{nullptr, Page_Size / 4}, rxBuffer_{nullptr, Page_Size / 4};
 };
 } // namespace robot_interface2
 #endif // ROBOT_INTERFACE2_DMASPI_HPP

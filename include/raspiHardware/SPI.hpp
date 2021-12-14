@@ -27,7 +27,7 @@ template <uint64_t N> constexpr SPIRegisters *GetSPI(uintptr_t address)
     return reinterpret_cast<SPIRegisters *>(address + N * SPI_Periph_Width);
 }
 
-SPIRegisters *GetSPI(uintptr_t address, uint8_t spiNum)
+inline SPIRegisters *GetSPI(uintptr_t address, uint8_t spiNum)
 {
     return reinterpret_cast<SPIRegisters *>(address + spiNum * SPI_Periph_Width);
 }
