@@ -43,7 +43,7 @@ namespace robot_interface2
 {
 FlyskyRemoteReceiver::FlyskyRemoteReceiver(uintptr_t gpioMmapPtr, uintptr_t uartMmapPtr, uintptr_t dmaMmapPtr)
     : flyskyMessagePub_(std::make_unique<CPublisher<robot_interface::FlyskyMessage>>("flysky")),
-      uart_(std::make_unique<UARTDMAReader>(Get_UART<0>(uartMmapPtr), Get_DMA<6>(dmaMmapPtr), 0, gpioMmapPtr, 32,
+      uart_(std::make_unique<UARTDMAReader>(Get_UART<0>(uartMmapPtr), Get_DMA<5>(dmaMmapPtr), 0, gpioMmapPtr, 32,
                                             115200)),
       iBusParser_(std::make_unique<Flysky::iBusParser>())
 {

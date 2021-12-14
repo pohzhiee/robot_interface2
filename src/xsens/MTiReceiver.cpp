@@ -11,7 +11,7 @@ namespace robot_interface2
 
 MTiReceiver::MTiReceiver(uintptr_t gpioMmapPtr, uintptr_t uartMmapPtr, uintptr_t dmaMmapPtr)
     : imuMessagePub_(std::make_unique<CPublisher<robot_interface::ImuMessage>>("imu")),
-      uart_(std::make_unique<UARTDMAReader>(Get_UART<2>(uartMmapPtr), Get_DMA<3>(dmaMmapPtr), 2, gpioMmapPtr, 151,
+      uart_(std::make_unique<UARTDMAReader>(Get_UART<2>(uartMmapPtr), Get_DMA<4>(dmaMmapPtr), 2, gpioMmapPtr, 151,
                                             460800)),
       mtiParser_(std::make_unique<MTiParser>())
 {
