@@ -91,4 +91,9 @@ template <unsigned N> constexpr DMARegisters *Get_DMA(uintptr_t addr)
     return reinterpret_cast<DMARegisters *>(addr + N * DMA_Periph_Width);
 }
 
+DMARegisters *Get_DMA(uintptr_t addr, uint8_t dmaNum)
+{
+    return reinterpret_cast<DMARegisters *>(addr + dmaNum * DMA_Periph_Width);
+}
+
 #endif // ROBOT_INTERFACE2_DMA_HPP

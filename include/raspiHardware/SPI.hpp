@@ -27,6 +27,11 @@ template <uint64_t N> constexpr SPIRegisters *GetSPI(uintptr_t address)
     return reinterpret_cast<SPIRegisters *>(address + N * SPI_Periph_Width);
 }
 
+SPIRegisters *GetSPI(uintptr_t address, uint8_t spiNum)
+{
+    return reinterpret_cast<SPIRegisters *>(address + spiNum * SPI_Periph_Width);
+}
+
 struct SPISettings
 {
     uint16_t SPI0_CLK{50};                // SPI0 clock prescaler

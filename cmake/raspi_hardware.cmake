@@ -1,7 +1,8 @@
 add_library(raspi_hardware ${CMAKE_SOURCE_DIR}/src/raspiHardware/mailbox.c
         ${CMAKE_SOURCE_DIR}/src/raspiHardware/SimultaneousSPI.cpp
         ${CMAKE_SOURCE_DIR}/src/raspiHardware/UARTDMAReader.cpp
-        ${CMAKE_SOURCE_DIR}/src/raspiHardware/UncachedMem.cpp)
+        ${CMAKE_SOURCE_DIR}/src/raspiHardware/UncachedMem.cpp
+        ${CMAKE_SOURCE_DIR}/src/raspiHardware/DMASPI.cpp)
 target_link_libraries(raspi_hardware PUBLIC Threads::Threads
         )
 target_include_directories(raspi_hardware PUBLIC
