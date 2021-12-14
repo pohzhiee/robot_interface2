@@ -48,7 +48,7 @@ hyq_cheetah::UserInput UserInputFromFlyskyProtobuf(const robot_interface::Flysky
     userInput.x_vel_cmd = convert(msg.channel2(), -1.0);
     userInput.y_vel_cmd = convert(msg.channel1(), 1.0);
     userInput.yaw_turn_rate = convert(msg.channel4(), -1.0);
-    userInput.height = 0.29;
+    userInput.height = 0.305;
 
     return userInput;
 }
@@ -317,8 +317,8 @@ robot_interface::MotorCmdMsg SomeClass::RunRecoveryStandController(
     {
         auto motorCmdPtr = cmdArrPtr->Add();
         motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-        motorCmdPtr->set_parameter(cmd.at(i));
+        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
+        motorCmdPtr->set_parameter(intermediatePos.at(i));
     }
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;
