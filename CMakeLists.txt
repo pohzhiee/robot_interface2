@@ -63,6 +63,11 @@ target_include_directories(
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(motor_controller_test PUBLIC eCAL::core robot_interface_protobuf raspi_hardware)
 
+add_executable(test_spi_dma src/testSpiDma.cpp)
+target_include_directories(
+        test_spi_dma PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(test_spi_dma PUBLIC eCAL::core robot_interface_protobuf raspi_hardware)
 
 find_package(iir REQUIRED)
 find_package(Eigen3 REQUIRED)
