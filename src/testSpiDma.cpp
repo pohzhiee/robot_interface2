@@ -9,7 +9,7 @@ using namespace std::chrono_literals;
 
 void SetupControlBlocksTx(uint8_t spiNum, uint16_t dma_len, uintptr_t spiPhysAddr,
                           const UncachedMemBlock &conBlocksMemBlk,
-                          span<DMAControlBlock, Page_Size / sizeof(DMAControlBlock)> conBlocks,
+                          span<volatile DMAControlBlock, Page_Size / sizeof(DMAControlBlock)> conBlocks,
                           const UncachedMemBlock &txDataMemBlk, span<volatile uint32_t, Page_Size / 4> txBuffer)
 {
     uint8_t rxNum;
@@ -31,15 +31,18 @@ void SetupControlBlocksTx(uint8_t spiNum, uint16_t dma_len, uintptr_t spiPhysAdd
     default:
         throw std::runtime_error("Wrong spi num for setting up DMA control blocks");
     }
-
-    conBlocks[0].TI = DMATransferInformation{.DestAddrIncrement = false,
-                                             .DestTransferWidth = DMATransferWidth::Width32,
-                                             .DestWriteUseDREQ = true,
-                                             .SrcAddrIncrement = true,
-                                             .SrcTransferWidth = DMATransferWidth::Width32,
-                                             .SrcReadUseDREQ = false,
-                                             .PeriphMapNum = txNum,
-                                             .WaitCycle = 20};
+    DMATransferInformation ti = {.DestAddrIncrement = false,
+                                 .DestTransferWidth = DMATransferWidth::Width32,
+                                 .DestWriteUseDREQ = true,
+                                 .SrcAddrIncrement = true,
+                                 .SrcTransferWidth = DMATransferWidth::Width32,
+                                 .SrcReadUseDREQ = false,
+                                 .PeriphMapNum = txNum,
+                                 .WaitCycle = 20};
+    uint32_t tempTi;
+    std::memcpy(&tempTi, &ti, sizeof(uint32_t));
+    std::cout << "writing to con blocks1" << std::endl;
+    conBlocks[0].TI = tempTi;
     conBlocks[0].SourceAddr = UncachedMemBlock_to_physical(&txDataMemBlk, &txBuffer[0]);
     conBlocks[0].DestAddr = spiPhysAddr + 0x04;
     conBlocks[0].TxLen = dma_len * 4;
@@ -49,7 +52,7 @@ void SetupControlBlocksTx(uint8_t spiNum, uint16_t dma_len, uintptr_t spiPhysAdd
 
 void SetupControlBlocksRx(uint8_t spiNum, uint16_t dma_len, uintptr_t spiPhysAddr,
                           const UncachedMemBlock &conBlocksMemBlk,
-                          span<DMAControlBlock, Page_Size / sizeof(DMAControlBlock)> conBlocks,
+                          span<volatile DMAControlBlock, Page_Size / sizeof(DMAControlBlock)> conBlocks,
                           const UncachedMemBlock &rxDataMemBlk, span<volatile uint32_t, Page_Size / 4> rxBuffer)
 {
     uint8_t rxNum;
@@ -71,15 +74,19 @@ void SetupControlBlocksRx(uint8_t spiNum, uint16_t dma_len, uintptr_t spiPhysAdd
     default:
         throw std::runtime_error("Wrong spi num for setting up DMA control blocks");
     }
+    DMATransferInformation ti = DMATransferInformation{.DestAddrIncrement = true,
+                                                       .DestTransferWidth = DMATransferWidth::Width32,
+                                                       .DestWriteUseDREQ = false,
+                                                       .SrcAddrIncrement = false,
+                                                       .SrcTransferWidth = DMATransferWidth::Width32,
+                                                       .SrcReadUseDREQ = true,
+                                                       .PeriphMapNum = rxNum,
+                                                       .WaitCycle = 1};
+    uint32_t tempTi;
+    std::memcpy(&tempTi, &ti, sizeof(uint32_t));
 
-    conBlocks[2].TI = DMATransferInformation{.DestAddrIncrement = true,
-                                             .DestTransferWidth = DMATransferWidth::Width32,
-                                             .DestWriteUseDREQ = false,
-                                             .SrcAddrIncrement = false,
-                                             .SrcTransferWidth = DMATransferWidth::Width32,
-                                             .SrcReadUseDREQ = true,
-                                             .PeriphMapNum = rxNum,
-                                             .WaitCycle = 1};
+    std::cout << "writing to con blocks2" << std::endl;
+    conBlocks[2].TI = tempTi;
     conBlocks[2].SourceAddr = spiPhysAddr + 0x04;
     conBlocks[2].DestAddr = UncachedMemBlock_to_physical(&rxDataMemBlk, &rxBuffer[0]);
     conBlocks[2].TxLen = dma_len * 4;
@@ -90,9 +97,10 @@ void SetupControlBlocksRx(uint8_t spiNum, uint16_t dma_len, uintptr_t spiPhysAdd
 void SetupSPI(volatile SPIRegisters *spi)
 {
     spi->CLK = 20;
-    // Clear FIFO and set DMAEN
+    // Clear FIFO
     spi->CS = 0b11u << 4u;
-    spi->CS = 0b1 << 8;
+    // Set DMAEN, set ADCS (automatically de assert CS, used by DMA), Use 32bit FIFO write
+    spi->CS = 0b1 << 8 | 0b1 << 11 | 0b1 << 25;
     spi->DLEN = 108;
 }
 
@@ -121,18 +129,19 @@ int main()
     auto rx_data_mem_block = UncachedMemBlock_alloc(Page_Size);
     auto tx_data_mem_block = UncachedMemBlock_alloc(Page_Size);
 
-    auto con_blocks = span<DMAControlBlock, Page_Size / sizeof(DMAControlBlock)>(
-        const_cast<DMAControlBlock *>(reinterpret_cast<volatile DMAControlBlock *>(control_block_mem_block.mem.data())),
-        128);
+    auto con_blocks = span<volatile DMAControlBlock, Page_Size / sizeof(DMAControlBlock)>(
+        reinterpret_cast<volatile DMAControlBlock *>(control_block_mem_block.mem.data()), Page_Size / sizeof(DMAControlBlock));
 
     auto rx_buffer = span<volatile uint32_t, Page_Size / 4>(
         reinterpret_cast<volatile uint32_t *>(rx_data_mem_block.mem.data()), 1024);
     auto tx_buffer = span<volatile uint32_t, Page_Size / 4>(
         reinterpret_cast<volatile uint32_t *>(tx_data_mem_block.mem.data()), 1024);
-    tx_buffer[0] = (108 << 16) | (0b1 << 7);
+    tx_buffer[0] = (static_cast<uint32_t>(108) << 16) | (0b1 << 7);
     for (int i = 0; i < 27; i++)
     {
-        tx_buffer[i + 1] = (4 * i + 10) | (((4 * i) + 11) << 8) | (((4 * i) + 12) << 16) | (((4 * i) + 13) << 24);
+        uint32_t val = static_cast<uint32_t>(4 * i + 10) | (static_cast<uint32_t>((4 * i) + 11) << 8) |
+                       (static_cast<uint32_t>((4 * i) + 12) << 16) | (static_cast<uint32_t>((4 * i) + 13) << 24);
+        tx_buffer[i + 1] = val;
     }
     //    tx_buffer[256] = tx_buffer[0];
     //    for (int i = 0; i < 27; i++)
@@ -143,7 +152,6 @@ int main()
     GPIO_Output<6> pin6(gpioMmapPtr);
     GPIO_Output<16> pin16(gpioMmapPtr);
     GPIO_Output<26> pin26(gpioMmapPtr);
-    SetupSPI(GetSPI<0>(spiMmapPtr));
     SetupControlBlocksTx(spiNum, 28, spi_phys_addr, control_block_mem_block, con_blocks, tx_data_mem_block, tx_buffer);
     SetupControlBlocksRx(spiNum, 27, spi_phys_addr, control_block_mem_block, con_blocks, rx_data_mem_block, rx_buffer);
     auto txDmaPtr = Get_DMA<8>(dmaMmapPtr);
@@ -151,10 +159,12 @@ int main()
     // Reset channel
     txDmaPtr->CtrlAndStatus |= 0b1 << 31;
     rxDmaPtr->CtrlAndStatus |= 0b1 << 31;
-    std::this_thread::sleep_for(200ms);
+
     txDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &con_blocks[0]);
     rxDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &con_blocks[2]);
+    SetupSPI(spiPtr);
     // AXI priority 9, Panic priority 9, Disable debug pause
+    std::this_thread::sleep_for(100ms);
     pin6.Toggle();
     txDmaPtr->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
     rxDmaPtr->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
@@ -169,16 +179,8 @@ int main()
         std::this_thread::sleep_for(1us);
     }
     pin6.Toggle();
-    //    while(spiPtr->CS)
-    spiPtr->CS = spiPtr->CS & ~(0b1 << 7); // Clear Transfer Active bit
-//    while (rxDmaPtr->NextCtrlBlk != 0)
-//    {
-//        std::this_thread::sleep_for(1us);
-//    }
-//    pin6.Toggle();
     std::this_thread::sleep_for(100ms);
-    std::cout << "Transmitted" << std::endl;
-    std::cout << "DLEN: " << spiPtr->DLEN << std::endl;
+    std::cout << "Rx data:" << std::endl;
     for (int i = 0; i < 27; i++)
     {
         std::cout << std::hex << rx_buffer[i] << ' ';

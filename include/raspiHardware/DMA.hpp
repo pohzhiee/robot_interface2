@@ -38,14 +38,14 @@ static_assert(sizeof(DMATransferInformation) == sizeof(uint32_t));
 
 struct DMAControlBlock
 {
-    DMATransferInformation TI;
-    uint32_t SourceAddr;
-    uint32_t DestAddr;
-    uint32_t TxLen;
-    uint32_t Stride;
-    uint32_t NextConBlkAddr;
-    uint32_t Reserved1;
-    uint32_t Reserved2;
+    volatile uint32_t TI;
+    volatile uint32_t SourceAddr;
+    volatile uint32_t DestAddr;
+    volatile uint32_t TxLen;
+    volatile uint32_t Stride;
+    volatile uint32_t NextConBlkAddr;
+    volatile uint32_t Reserved1;
+    volatile uint32_t Reserved2;
 };
 static_assert(sizeof(DMAControlBlock) == 32);
 
