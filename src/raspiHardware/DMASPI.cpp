@@ -6,6 +6,7 @@
 #include <thread>
 
 using namespace std::chrono_literals;
+using namespace std::chrono;
 
 namespace robot_interface2
 {
@@ -165,14 +166,30 @@ void DMASPI::Transceive()
         txDmaPtr->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
         rxDmaPtr->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
     }
-    std::this_thread::sleep_for(30us);
+    auto transmitTime = steady_clock::now();
+    std::this_thread::sleep_for(100us);
     for(int i = 0;i<2;i++){
         // Wait for all transmit to be done (i.e. all data is cleared from Rx buffer)
         // This will be slightly later from the time it takes to fully transmit data on the spi bus
         // This is to allow the DMA to fully transfer all the rx data before we read
-        while ((spiPtrs.at(i)->CS & (0b1u << 16u)) == 0u)
-        {
+//        auto txDmaPtr = Get_DMA(dmaMmapPtr_, spiSettings_.at(0+i).txDmaNum);
+        auto rxDmaPtr = Get_DMA(dmaMmapPtr_, spiSettings_.at(0+i).rxDmaNum);
+        bool timeOut = false;
+        while((rxDmaPtr->CtrlAndStatus & (0b1 << 1)) == 00){
+            std::this_thread::sleep_for(1us);
+            auto timeDiffUs = duration_cast<microseconds>(steady_clock::now() - transmitTime).count();
+            if(timeDiffUs > 1000){
+                timeOut = true;
+                break;
+            }
         }
+        if(timeOut){
+            pin6.Toggle();
+            break;
+        }
+//        while ((spiPtrs.at(i)->CS & (0b1u << 16u)) == 0u)
+//        {
+//        }
         for (int k = 0; k < rxBufs_.at(i*6).size() / 4; k++)
         {
             uint32_t rxBytes = rxBuffer_[k + 256*i];

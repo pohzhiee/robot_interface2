@@ -61,10 +61,14 @@ MotorCommandType ProtoCmdTypeToInterfaceCmdType(robot_interface::MotorCmd_Comman
 robot_interface::MotorFeedbackMsg FeedbackToProto(const MotorFeedbackFull &frontFeedback,
                                                   const MotorFeedbackFull &hindFeedback)
 {
-    std::array<MotorFeedbackSingle, 12> feedbacks;
-    robot_interface::MotorFeedbackMsg feedbackMsg;
-    std::memcpy(feedbacks.data(), frontFeedback.Feedbacks.data(), sizeof(MotorFeedbackSingle) * 6);
-    std::memcpy(feedbacks.data() + 6, hindFeedback.Feedbacks.data(), sizeof(MotorFeedbackSingle) * 6);
+    std::array<MotorFeedbackSingle, 12> feedbacks{};
+    robot_interface::MotorFeedbackMsg feedbackMsg{};
+    if(frontFeedback.CheckCRC()){
+        std::memcpy(feedbacks.data(), frontFeedback.Feedbacks.data(), sizeof(MotorFeedbackSingle) * 6);
+    }
+    if(hindFeedback.CheckCRC()){
+        std::memcpy(feedbacks.data() + 6, hindFeedback.Feedbacks.data(), sizeof(MotorFeedbackSingle) * 6);
+    }
     for (int i = 0; i < 12; i++)
     {
         auto feedbackPtr = feedbackMsg.mutable_feedbacks()->Add();
