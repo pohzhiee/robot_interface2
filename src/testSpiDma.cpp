@@ -7,22 +7,17 @@
 #include <thread>
 using namespace std::chrono_literals;
 
-void SetupControlBlocksTx(uint8_t spiNum, uint16_t dma_len, uintptr_t spiPhysAddr,
-                          const UncachedMemBlock &conBlocksMemBlk,
-                          span<volatile DMAControlBlock, Page_Size / sizeof(DMAControlBlock)> conBlocks,
-                          const UncachedMemBlock &txDataMemBlk, span<volatile uint32_t, Page_Size / 4> txBuffer)
+void SetupControlBlocks(uint8_t spiNum, uint16_t dma_len, uintptr_t txPhysAddr, uintptr_t rxPhysAddr,
+                        volatile DMAControlBlock &txConBlock, volatile DMAControlBlock &rxConBlock)
 {
     uint8_t rxNum;
     uint8_t txNum;
+    auto spiPhysAddr = 0x7e204000 + spiNum * 0x200;
     switch (spiNum)
     {
     case 0:
         rxNum = 7;
         txNum = 6;
-        break;
-    case 1:
-        rxNum = 18;
-        txNum = 16;
         break;
     case 6:
         rxNum = 27;
@@ -42,56 +37,29 @@ void SetupControlBlocksTx(uint8_t spiNum, uint16_t dma_len, uintptr_t spiPhysAdd
     uint32_t tempTi;
     std::memcpy(&tempTi, &ti, sizeof(uint32_t));
     std::cout << "writing to con blocks1" << std::endl;
-    conBlocks[0].TI = tempTi;
-    conBlocks[0].SourceAddr = UncachedMemBlock_to_physical(&txDataMemBlk, &txBuffer[0]);
-    conBlocks[0].DestAddr = spiPhysAddr + 0x04;
-    conBlocks[0].TxLen = dma_len * 4;
-    conBlocks[0].Stride = 0;
-    conBlocks[0].NextConBlkAddr = 0;
-}
+    txConBlock.TI = tempTi;
+    txConBlock.SourceAddr = static_cast<uint32_t>(txPhysAddr);
+    txConBlock.DestAddr = static_cast<uint32_t>(spiPhysAddr + 0x04);
+    txConBlock.TxLen = (dma_len + 1) * 4;
+    txConBlock.Stride = 0;
+    txConBlock.NextConBlkAddr = 0;
 
-void SetupControlBlocksRx(uint8_t spiNum, uint16_t dma_len, uintptr_t spiPhysAddr,
-                          const UncachedMemBlock &conBlocksMemBlk,
-                          span<volatile DMAControlBlock, Page_Size / sizeof(DMAControlBlock)> conBlocks,
-                          const UncachedMemBlock &rxDataMemBlk, span<volatile uint32_t, Page_Size / 4> rxBuffer)
-{
-    uint8_t rxNum;
-    uint8_t txNum;
-    switch (spiNum)
-    {
-    case 0:
-        rxNum = 7;
-        txNum = 6;
-        break;
-    case 1:
-        rxNum = 18;
-        txNum = 16;
-        break;
-    case 6:
-        rxNum = 27;
-        txNum = 23;
-        break;
-    default:
-        throw std::runtime_error("Wrong spi num for setting up DMA control blocks");
-    }
-    DMATransferInformation ti = DMATransferInformation{.DestAddrIncrement = true,
-                                                       .DestTransferWidth = DMATransferWidth::Width32,
-                                                       .DestWriteUseDREQ = false,
-                                                       .SrcAddrIncrement = false,
-                                                       .SrcTransferWidth = DMATransferWidth::Width32,
-                                                       .SrcReadUseDREQ = true,
-                                                       .PeriphMapNum = rxNum,
-                                                       .WaitCycle = 1};
-    uint32_t tempTi;
-    std::memcpy(&tempTi, &ti, sizeof(uint32_t));
-
-    std::cout << "writing to con blocks2" << std::endl;
-    conBlocks[2].TI = tempTi;
-    conBlocks[2].SourceAddr = spiPhysAddr + 0x04;
-    conBlocks[2].DestAddr = UncachedMemBlock_to_physical(&rxDataMemBlk, &rxBuffer[0]);
-    conBlocks[2].TxLen = dma_len * 4;
-    conBlocks[2].Stride = 0;
-    conBlocks[2].NextConBlkAddr = 0;
+    auto ti2 = DMATransferInformation{.DestAddrIncrement = true,
+                                      .DestTransferWidth = DMATransferWidth::Width32,
+                                      .DestWriteUseDREQ = false,
+                                      .SrcAddrIncrement = false,
+                                      .SrcTransferWidth = DMATransferWidth::Width32,
+                                      .SrcReadUseDREQ = true,
+                                      .PeriphMapNum = rxNum,
+                                      .WaitCycle = 10};
+    uint32_t tempTi2;
+    std::memcpy(&tempTi2, &ti2, sizeof(uint32_t));
+    rxConBlock.TI = tempTi2;
+    rxConBlock.SourceAddr = static_cast<uint32_t>(spiPhysAddr + 0x04),
+    rxConBlock.DestAddr = static_cast<uint32_t>(rxPhysAddr);
+    rxConBlock.TxLen = static_cast<uint32_t>(dma_len * 4);
+    rxConBlock.Stride = 0;
+    rxConBlock.NextConBlkAddr = 0;
 }
 
 void SetupSPI(volatile SPIRegisters *spi)
@@ -130,7 +98,8 @@ int main()
     auto tx_data_mem_block = UncachedMemBlock_alloc(Page_Size);
 
     auto con_blocks = span<volatile DMAControlBlock, Page_Size / sizeof(DMAControlBlock)>(
-        reinterpret_cast<volatile DMAControlBlock *>(control_block_mem_block.mem.data()), Page_Size / sizeof(DMAControlBlock));
+        reinterpret_cast<volatile DMAControlBlock *>(control_block_mem_block.mem.data()),
+        Page_Size / sizeof(DMAControlBlock));
 
     auto rx_buffer = span<volatile uint32_t, Page_Size / 4>(
         reinterpret_cast<volatile uint32_t *>(rx_data_mem_block.mem.data()), 1024);
@@ -152,16 +121,19 @@ int main()
     GPIO_Output<6> pin6(gpioMmapPtr);
     GPIO_Output<16> pin16(gpioMmapPtr);
     GPIO_Output<26> pin26(gpioMmapPtr);
-    SetupControlBlocksTx(spiNum, 28, spi_phys_addr, control_block_mem_block, con_blocks, tx_data_mem_block, tx_buffer);
-    SetupControlBlocksRx(spiNum, 27, spi_phys_addr, control_block_mem_block, con_blocks, rx_data_mem_block, rx_buffer);
+    uintptr_t txPhysAddr = UncachedMemBlock_to_physical(&tx_data_mem_block, &tx_buffer[0]);
+    uintptr_t rxPhysAddr = UncachedMemBlock_to_physical(&rx_data_mem_block, &rx_buffer[0]);
+    auto &rxConBlock = con_blocks[10];
+    auto &txConBlock = con_blocks[0];
+    SetupControlBlocks(spiNum, 27, txPhysAddr, rxPhysAddr, txConBlock, rxConBlock);
     auto txDmaPtr = Get_DMA<8>(dmaMmapPtr);
     auto rxDmaPtr = Get_DMA<9>(dmaMmapPtr);
     // Reset channel
     txDmaPtr->CtrlAndStatus |= 0b1 << 31;
     rxDmaPtr->CtrlAndStatus |= 0b1 << 31;
 
-    txDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &con_blocks[0]);
-    rxDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &con_blocks[2]);
+    txDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &txConBlock);
+    rxDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &rxConBlock);
     SetupSPI(spiPtr);
     // AXI priority 9, Panic priority 9, Disable debug pause
     std::this_thread::sleep_for(100ms);
