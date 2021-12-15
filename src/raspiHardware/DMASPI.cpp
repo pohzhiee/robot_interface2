@@ -183,6 +183,18 @@ void DMASPI::Transceive()
         }
         pin6.Toggle();
     }
+    for (int i = 0; i < 2; i++)
+    {
+        auto txDmaPtr = Get_DMA(dmaMmapPtr_, spiSettings_.at(0 + i).txDmaNum);
+        auto rxDmaPtr = Get_DMA(dmaMmapPtr_, spiSettings_.at(0 + i).rxDmaNum);
+
+        txDmaPtr->CtrlAndStatus |= 0b1 << 31;
+        rxDmaPtr->CtrlAndStatus |= 0b1 << 31;
+
+        spiPtrs.at(i)->CS = 0b11u << 4u;
+        // Set DMAEN, set ADCS (automatically de assert CS, used by DMA), Use 32bit FIFO write
+        spiPtrs.at(i)->CS = 0b1 << 8 | 0b1 << 11 | 0b1 << 25;
+    }
 }
 
 } // namespace robot_interface2
