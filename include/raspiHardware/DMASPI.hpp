@@ -36,8 +36,8 @@ class DMASPI : public RpiSPIDriver
     void Transceive() override;
 
   private:
-    static ControlBlocks SetupControlBlocks(uint8_t spiNum, uint16_t dma_len, uintptr_t txPhysAddr,
-                                            uintptr_t rxPhysAddr);
+    static void SetupControlBlocks(uint8_t spiNum, uint16_t dma_len, uintptr_t txPhysAddr, uintptr_t rxPhysAddr,
+                                   volatile DMAControlBlock &txConBlock, volatile DMAControlBlock &rxConBlock);
     static void InitialiseSPI(uint8_t spiNum, uintptr_t gpioMmapPtr, uintptr_t spiMmapPtr, uint32_t CLK);
 
     std::array<DMASPISetting, 2> spiSettings_{};
@@ -45,7 +45,7 @@ class DMASPI : public RpiSPIDriver
     uintptr_t dmaMmapPtr_{};
     uintptr_t spiMmapPtr_{};
     std::array<span<uint8_t>, 7> rxBufs_{};
-    UncachedMemBlock conBlockMemBlock_{};
+    UncachedMemBlock conBlockMemBlock_{}, txDataMemBlock_{}, rxDataMemBlock_{};
     span<DMAControlBlock, Page_Size / sizeof(DMAControlBlock)> conBlocks_{nullptr, Page_Size / sizeof(DMAControlBlock)};
     span<volatile uint32_t, Page_Size / 4> txBuffer_{nullptr, Page_Size / 4}, rxBuffer_{nullptr, Page_Size / 4};
 };

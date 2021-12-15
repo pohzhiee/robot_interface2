@@ -83,15 +83,21 @@ int main()
         std::cerr << "Mmap failed" << std::endl;
         return -1;
     }
-    uint8_t spiNum = 0;
+    uint8_t spiNum1 = 0;
+    uint8_t spiNum2 = 6;
 
     SetAF<8>(reinterpret_cast<uintptr_t>(gpioMmapPtr), GPIO_AlternateFunc::AF0);
     SetAF<9>(reinterpret_cast<uintptr_t>(gpioMmapPtr), GPIO_AlternateFunc::AF0);
     SetAF<10>(reinterpret_cast<uintptr_t>(gpioMmapPtr), GPIO_AlternateFunc::AF0);
     SetAF<11>(reinterpret_cast<uintptr_t>(gpioMmapPtr), GPIO_AlternateFunc::AF0);
+    // Set AF3 for GPIO 18,19,20,21
+    SetAF<18>(reinterpret_cast<uintptr_t>(gpioMmapPtr), GPIO_AlternateFunc::AF3);
+    SetAF<19>(reinterpret_cast<uintptr_t>(gpioMmapPtr), GPIO_AlternateFunc::AF3);
+    SetAF<20>(reinterpret_cast<uintptr_t>(gpioMmapPtr), GPIO_AlternateFunc::AF3);
+    SetAF<21>(reinterpret_cast<uintptr_t>(gpioMmapPtr), GPIO_AlternateFunc::AF3);
 
     auto spiPtr = GetSPI<0>(spiMmapPtr);
-    auto spi_phys_addr = 0x7e204000 + spiNum * 0x200;
+    auto spiPtr2 = GetSPI<6>(spiMmapPtr);
 
     auto control_block_mem_block = UncachedMemBlock_alloc(Page_Size);
     auto rx_data_mem_block = UncachedMemBlock_alloc(Page_Size);
@@ -106,11 +112,15 @@ int main()
     auto tx_buffer = span<volatile uint32_t, Page_Size / 4>(
         reinterpret_cast<volatile uint32_t *>(tx_data_mem_block.mem.data()), 1024);
     tx_buffer[0] = (static_cast<uint32_t>(108) << 16) | (0b1 << 7);
+    tx_buffer[256] = (static_cast<uint32_t>(108) << 16) | (0b1 << 7);
     for (int i = 0; i < 27; i++)
     {
         uint32_t val = static_cast<uint32_t>(4 * i + 10) | (static_cast<uint32_t>((4 * i) + 11) << 8) |
                        (static_cast<uint32_t>((4 * i) + 12) << 16) | (static_cast<uint32_t>((4 * i) + 13) << 24);
+        uint32_t val2 = static_cast<uint32_t>(4 * i +128) | (static_cast<uint32_t>((4 * i) + 129) << 8) |
+                       (static_cast<uint32_t>((4 * i) + 130) << 16) | (static_cast<uint32_t>((4 * i) + 131) << 24);
         tx_buffer[i + 1] = val;
+        tx_buffer[i+1+256] = val2;
     }
     //    tx_buffer[256] = tx_buffer[0];
     //    for (int i = 0; i < 27; i++)
@@ -121,25 +131,47 @@ int main()
     GPIO_Output<6> pin6(gpioMmapPtr);
     GPIO_Output<16> pin16(gpioMmapPtr);
     GPIO_Output<26> pin26(gpioMmapPtr);
-    uintptr_t txPhysAddr = UncachedMemBlock_to_physical(&tx_data_mem_block, &tx_buffer[0]);
-    uintptr_t rxPhysAddr = UncachedMemBlock_to_physical(&rx_data_mem_block, &rx_buffer[0]);
-    auto &rxConBlock = con_blocks[10];
-    auto &txConBlock = con_blocks[0];
-    SetupControlBlocks(spiNum, 27, txPhysAddr, rxPhysAddr, txConBlock, rxConBlock);
-    auto txDmaPtr = Get_DMA<8>(dmaMmapPtr);
-    auto rxDmaPtr = Get_DMA<9>(dmaMmapPtr);
+    auto txDmaPtr1 = Get_DMA<0>(dmaMmapPtr);
+    auto rxDmaPtr1 = Get_DMA<1>(dmaMmapPtr);
+    auto txDmaPtr2 = Get_DMA<2>(dmaMmapPtr);
+    auto rxDmaPtr2 = Get_DMA<3>(dmaMmapPtr);
     // Reset channel
-    txDmaPtr->CtrlAndStatus |= 0b1 << 31;
-    rxDmaPtr->CtrlAndStatus |= 0b1 << 31;
+    txDmaPtr1->CtrlAndStatus |= 0b1 << 31;
+    rxDmaPtr1->CtrlAndStatus |= 0b1 << 31;
+    txDmaPtr2->CtrlAndStatus |= 0b1 << 31;
+    rxDmaPtr2->CtrlAndStatus |= 0b1 << 31;
+    {
 
-    txDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &txConBlock);
-    rxDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &rxConBlock);
+        uintptr_t txPhysAddr = UncachedMemBlock_to_physical(&tx_data_mem_block, &tx_buffer[0]);
+        uintptr_t rxPhysAddr = UncachedMemBlock_to_physical(&rx_data_mem_block, &rx_buffer[0]);
+        auto &rxConBlock = con_blocks[10];
+        auto &txConBlock = con_blocks[0];
+        SetupControlBlocks(spiNum1, 27, txPhysAddr, rxPhysAddr, txConBlock, rxConBlock);
+
+        txDmaPtr1->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &txConBlock);
+        rxDmaPtr1->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &rxConBlock);
+    }
+    {
+
+        uintptr_t txPhysAddr = UncachedMemBlock_to_physical(&tx_data_mem_block, &tx_buffer[256]);
+        uintptr_t rxPhysAddr = UncachedMemBlock_to_physical(&rx_data_mem_block, &rx_buffer[256]);
+        auto &rxConBlock = con_blocks[11];
+        auto &txConBlock = con_blocks[1];
+        SetupControlBlocks(spiNum2, 27, txPhysAddr, rxPhysAddr, txConBlock, rxConBlock);
+
+        txDmaPtr2->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &txConBlock);
+        rxDmaPtr2->CtrlBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block, &rxConBlock);
+    }
+
     SetupSPI(spiPtr);
+    SetupSPI(spiPtr2);
     // AXI priority 9, Panic priority 9, Disable debug pause
     std::this_thread::sleep_for(100ms);
     pin6.Toggle();
-    txDmaPtr->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
-    rxDmaPtr->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
+    txDmaPtr1->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
+    rxDmaPtr1->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
+    txDmaPtr2->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
+    rxDmaPtr2->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
     //    pin6.Toggle();
     //    std::this_thread::sleep_for(200ms);
     //    txDmaPtr->CtrlAndStatus |= 0b1;
@@ -147,6 +179,11 @@ int main()
     //    pin6.Toggle();
     std::this_thread::sleep_for(50us);
     while ((spiPtr->CS & (0b1u << 16u)) == 0u)
+    {
+        std::this_thread::sleep_for(1us);
+    }
+    pin6.Toggle();
+    while ((spiPtr2->CS & (0b1u << 16u)) == 0u)
     {
         std::this_thread::sleep_for(1us);
     }

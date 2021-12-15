@@ -107,29 +107,34 @@ void UARTDMAReader::SetupControlBlocks(uint8_t uart_num, uint16_t dma_len)
     default:
         throw std::runtime_error("Wrong uart num for setting up DMA control blocks");
     }
-
-    con_blocks_[0].TI = DMATransferInformation{.DestAddrIncrement = true,
-                                               .DestTransferWidth = DMATransferWidth::Width32,
-                                               .DestWriteUseDREQ = false,
-                                               .SrcAddrIncrement = false,
-                                               .SrcTransferWidth = DMATransferWidth::Width32,
-                                               .SrcReadUseDREQ = true,
-                                               .PeriphMapNum = periph_num,
-                                               .WaitCycle = 0};
+    auto ti = DMATransferInformation{.DestAddrIncrement = true,
+                                     .DestTransferWidth = DMATransferWidth::Width32,
+                                     .DestWriteUseDREQ = false,
+                                     .SrcAddrIncrement = false,
+                                     .SrcTransferWidth = DMATransferWidth::Width32,
+                                     .SrcReadUseDREQ = true,
+                                     .PeriphMapNum = periph_num,
+                                     .WaitCycle = 0};
+    uint32_t tempTi;
+    std::memcpy(&tempTi, &ti, sizeof(uint32_t));
+    con_blocks_[0].TI = tempTi;
     con_blocks_[0].SourceAddr = uart_phys_addr_;
     con_blocks_[0].DestAddr = UncachedMemBlock_to_physical(&data_mem_block_, &rx_buffer_[0]);
     con_blocks_[0].TxLen = dma_len * 4;
     con_blocks_[0].Stride = 0;
     con_blocks_[0].NextConBlkAddr = UncachedMemBlock_to_physical(&control_block_mem_block_, &con_blocks_[1]);
 
-    con_blocks_[1].TI = DMATransferInformation{.DestAddrIncrement = true,
-                                               .DestTransferWidth = DMATransferWidth::Width32,
-                                               .DestWriteUseDREQ = false,
-                                               .SrcAddrIncrement = false,
-                                               .SrcTransferWidth = DMATransferWidth::Width32,
-                                               .SrcReadUseDREQ = true,
-                                               .PeriphMapNum = periph_num,
-                                               .WaitCycle = 0};
+    auto ti2 = DMATransferInformation{.DestAddrIncrement = true,
+                                      .DestTransferWidth = DMATransferWidth::Width32,
+                                      .DestWriteUseDREQ = false,
+                                      .SrcAddrIncrement = false,
+                                      .SrcTransferWidth = DMATransferWidth::Width32,
+                                      .SrcReadUseDREQ = true,
+                                      .PeriphMapNum = periph_num,
+                                      .WaitCycle = 0};
+    uint32_t tempTi2;
+    std::memcpy(&tempTi2, &ti2, sizeof(uint32_t));
+    con_blocks_[1].TI = tempTi2;
     con_blocks_[1].SourceAddr = uart_phys_addr_;
     con_blocks_[1].DestAddr = UncachedMemBlock_to_physical(&data_mem_block_, &rx_buffer_[256]);
     con_blocks_[1].TxLen = dma_len * 4;

@@ -33,15 +33,15 @@ void DMASPI::InitialiseSPI(uint8_t spiNum, uintptr_t gpioMmapPtr, uintptr_t spiM
     auto spi = GetSPI(spiMmapPtr, spiNum);
     // Set CLK
     spi->CLK = CLK;
-    // Clear FIFO and set DMAEN
+    // Clear FIFO
     spi->CS = 0b11u << 4u;
-    spi->CS = 0b1 << 8;
-    // Set DMA transfer number of bytes to be same as command message
+    // Set DMAEN, set ADCS (automatically de assert CS, used by DMA), Use 32bit FIFO write
+    spi->CS = 0b1 << 8 | 0b1 << 11 | 0b1 << 25;
     spi->DLEN = sizeof(CommandMessage);
 }
 
-DMASPI::ControlBlocks DMASPI::SetupControlBlocks(uint8_t spiNum, uint16_t dma_len, uintptr_t txPhysAddr,
-                                                 uintptr_t rxPhysAddr)
+void DMASPI::SetupControlBlocks(uint8_t spiNum, uint16_t dma_len, uintptr_t txPhysAddr, uintptr_t rxPhysAddr,
+                                volatile DMAControlBlock &txConBlock, volatile DMAControlBlock &rxConBlock)
 {
     uint8_t rxNum;
     uint8_t txNum;
@@ -59,33 +59,39 @@ DMASPI::ControlBlocks DMASPI::SetupControlBlocks(uint8_t spiNum, uint16_t dma_le
     default:
         throw std::runtime_error("Wrong spi num for setting up DMA control blocks");
     }
-    DMAControlBlock txConBlock{.TI{DMATransferInformation{.DestAddrIncrement = false,
-                                                          .DestTransferWidth = DMATransferWidth::Width32,
-                                                          .DestWriteUseDREQ = true,
-                                                          .SrcAddrIncrement = true,
-                                                          .SrcTransferWidth = DMATransferWidth::Width32,
-                                                          .SrcReadUseDREQ = false,
-                                                          .PeriphMapNum = txNum,
-                                                          .WaitCycle = 20}},
-                               .SourceAddr = static_cast<uint32_t>(txPhysAddr),
-                               .DestAddr = static_cast<uint32_t>(spiPhysAddr + 0x04),
-                               .TxLen = static_cast<uint32_t>((dma_len + 1) * 4),
-                               .Stride = 0,
-                               .NextConBlkAddr = 0};
-    DMAControlBlock rxConBlock{.TI{DMATransferInformation{.DestAddrIncrement = true,
-                                                          .DestTransferWidth = DMATransferWidth::Width32,
-                                                          .DestWriteUseDREQ = false,
-                                                          .SrcAddrIncrement = false,
-                                                          .SrcTransferWidth = DMATransferWidth::Width32,
-                                                          .SrcReadUseDREQ = true,
-                                                          .PeriphMapNum = rxNum,
-                                                          .WaitCycle = 1}},
-                               .SourceAddr = static_cast<uint32_t>(spiPhysAddr + 0x04),
-                               .DestAddr = static_cast<uint32_t>(rxPhysAddr),
-                               .TxLen = static_cast<uint32_t>(dma_len * 4),
-                               .Stride = 0,
-                               .NextConBlkAddr = 0};
-    return {.txDMAConBlock = txConBlock, .rxDMAConBlock = rxConBlock};
+    DMATransferInformation ti = {.DestAddrIncrement = false,
+                                 .DestTransferWidth = DMATransferWidth::Width32,
+                                 .DestWriteUseDREQ = true,
+                                 .SrcAddrIncrement = true,
+                                 .SrcTransferWidth = DMATransferWidth::Width32,
+                                 .SrcReadUseDREQ = false,
+                                 .PeriphMapNum = txNum,
+                                 .WaitCycle = 20};
+    uint32_t tempTi;
+    std::memcpy(&tempTi, &ti, sizeof(uint32_t));
+    txConBlock.TI = tempTi;
+    txConBlock.SourceAddr = static_cast<uint32_t>(txPhysAddr);
+    txConBlock.DestAddr = static_cast<uint32_t>(spiPhysAddr + 0x04);
+    txConBlock.TxLen = (dma_len + 1) * 4;
+    txConBlock.Stride = 0;
+    txConBlock.NextConBlkAddr = 0;
+
+    auto ti2 = DMATransferInformation{.DestAddrIncrement = true,
+                                      .DestTransferWidth = DMATransferWidth::Width32,
+                                      .DestWriteUseDREQ = false,
+                                      .SrcAddrIncrement = false,
+                                      .SrcTransferWidth = DMATransferWidth::Width32,
+                                      .SrcReadUseDREQ = true,
+                                      .PeriphMapNum = rxNum,
+                                      .WaitCycle = 10};
+    uint32_t tempTi2;
+    std::memcpy(&tempTi2, &ti2, sizeof(uint32_t));
+    rxConBlock.TI = tempTi2;
+    rxConBlock.SourceAddr = static_cast<uint32_t>(spiPhysAddr + 0x04),
+    rxConBlock.DestAddr = static_cast<uint32_t>(rxPhysAddr);
+    rxConBlock.TxLen = static_cast<uint32_t>(dma_len * 4);
+    rxConBlock.Stride = 0;
+    rxConBlock.NextConBlkAddr = 0;
 }
 
 DMASPI::DMASPI(std::array<DMASPISetting, 2> spiSettings, uintptr_t gpioMmapPtr, uintptr_t dmaMmapPtr,
@@ -105,18 +111,16 @@ DMASPI::DMASPI(std::array<DMASPISetting, 2> spiSettings, uintptr_t gpioMmapPtr, 
         reinterpret_cast<volatile uint32_t *>(txDataMemBlock.mem.data()), Page_Size / 4);
 
     conBlockMemBlock_ = conBlockMemBlock;
+    txDataMemBlock_ = txDataMemBlock;
+    rxDataMemBlock_ = rxDataMemBlock;
     conBlocks_ = conBlocks;
     txBuffer_ = txBuffer;
     rxBuffer_ = rxBuffer;
 
-    auto spi0ConBlocks = SetupControlBlocks(0, dmaLen, UncachedMemBlock_to_physical(&txDataMemBlock, &txBuffer[0]),
-                                            UncachedMemBlock_to_physical(&rxDataMemBlock, &rxBuffer[0]));
-    auto spi6ConBlocks = SetupControlBlocks(6, dmaLen, UncachedMemBlock_to_physical(&txDataMemBlock, &txBuffer[256]),
-                                            UncachedMemBlock_to_physical(&rxDataMemBlock, &rxBuffer[256]));
-    conBlocks[0] = spi0ConBlocks.txDMAConBlock;
-    conBlocks[1] = spi6ConBlocks.txDMAConBlock;
-    conBlocks[10] = spi0ConBlocks.rxDMAConBlock;
-    conBlocks[11] = spi6ConBlocks.rxDMAConBlock;
+    SetupControlBlocks(0, dmaLen, UncachedMemBlock_to_physical(&txDataMemBlock, &txBuffer[0]),
+                       UncachedMemBlock_to_physical(&rxDataMemBlock, &rxBuffer[0]), conBlocks_[0], conBlocks_[10]);
+    SetupControlBlocks(6, dmaLen, UncachedMemBlock_to_physical(&txDataMemBlock, &txBuffer[256]),
+                       UncachedMemBlock_to_physical(&rxDataMemBlock, &rxBuffer[256]), conBlocks_[1], conBlocks_[11]);
     InitialiseSPI(0, gpioMmapPtr, spiMmapPtr, spiSettings[0].SPI_CLK);
     InitialiseSPI(6, gpioMmapPtr, spiMmapPtr, spiSettings[1].SPI_CLK);
 }
@@ -136,59 +140,49 @@ void DMASPI::AddTransceiveData(uint8_t spiNum, span<const uint8_t> txBuf, span<u
     else
         offset = 256;
     rxBufs_.at(spiNum) = rxBuf;
+    txBuffer_[0 + offset] = (sizeof(CommandMessage) << 16) | (0b1 << 7);
     for (int i = 0; i < txBuf.size() / 4; i++)
     {
-        txBuffer_[i + offset] =
-            (txBuf[i * 4] | (txBuf[i * 4 + 1] << 8) | (txBuf[i * 4 + 2] << 16) | (txBuf[i * 4 + 3] << 24));
+        uint32_t temp = static_cast<uint32_t>(txBuf[i * 4]) | (static_cast<uint32_t>(txBuf[i * 4 + 1]) << 8) |
+                        (static_cast<uint32_t>(txBuf[i * 4 + 2]) << 16) |
+                        (static_cast<uint32_t>(txBuf[i * 4 + 3]) << 24);
+        txBuffer_[i + offset + 1] = temp;
     }
 }
 void DMASPI::Transceive()
-{
-    GPIO_Output<6> pin6(gpioMmapPtr_);
+{    GPIO_Output<6> pin6(gpioMmapPtr_);
     pin6.Toggle();
-    auto spiPtr1 = GetSPI<0>(spiMmapPtr_);
-    auto spiPtr2 = GetSPI<6>(spiMmapPtr_);
+    std::array<SPIRegisters*, 2> spiPtrs = {GetSPI<0>(spiMmapPtr_), GetSPI<6>(spiMmapPtr_)};
     for (int i = 0; i < 2; i++)
     {
-        auto txDmaPtr = Get_DMA(dmaMmapPtr_, spiSettings_.at(0 + i).txDmaNum);
-        auto rxDmaPtr = Get_DMA(dmaMmapPtr_, spiSettings_.at(0 + i).rxDmaNum);
-        // Reset channel
+        auto txDmaPtr = Get_DMA(dmaMmapPtr_, spiSettings_.at(0+i).txDmaNum);
+        auto rxDmaPtr = Get_DMA(dmaMmapPtr_, spiSettings_.at(0+i).rxDmaNum);
+
         txDmaPtr->CtrlAndStatus |= 0b1 << 31;
         rxDmaPtr->CtrlAndStatus |= 0b1 << 31;
-        txDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&conBlockMemBlock_, &conBlocks_[0 + i]);
-        rxDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&conBlockMemBlock_, &conBlocks_[10 + i]);
+        txDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&conBlockMemBlock_, &conBlocks_[0+i]);
+        rxDmaPtr->CtrlBlkAddr = UncachedMemBlock_to_physical(&conBlockMemBlock_, &conBlocks_[10+i]);
         txDmaPtr->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
         rxDmaPtr->CtrlAndStatus = 9 << 16 | 9 << 20 | 0b1 << 29 | 0b1;
     }
-    std::this_thread::sleep_for(50us);
-    while ((spiPtr1->CS & (0b1u << 16u)) == 0u)
-    {
-        std::this_thread::sleep_for(1us);
+    std::this_thread::sleep_for(30us);
+    for(int i = 0;i<2;i++){
+        // Wait for all transmit to be done (i.e. all data is cleared from Rx buffer)
+        // This will be slightly later from the time it takes to fully transmit data on the spi bus
+        // This is to allow the DMA to fully transfer all the rx data before we read
+        while ((spiPtrs.at(i)->CS & (0b1u << 16u)) == 0u)
+        {
+        }
+        for (int k = 0; k < rxBufs_.at(i*6).size() / 4; k++)
+        {
+            uint32_t rxBytes = rxBuffer_[k + 256*i];
+            rxBufs_.at(i*6)[k * 4] = rxBytes & 0b11111111;
+            rxBufs_.at(i*6)[k * 4 + 1] = ((rxBytes & (0b11111111 << 8)) >> 8);
+            rxBufs_.at(i*6)[k * 4 + 2] = ((rxBytes & (0b11111111 << 16)) >> 16);
+            rxBufs_.at(i*6)[k * 4 + 3] = ((rxBytes & (0b11111111 << 24)) >> 24);
+        }
+        pin6.Toggle();
     }
-    spiPtr1->CS = spiPtr1->CS & ~(0b1 << 7); // Clear Transfer Active bit
-    while ((spiPtr2->CS & (0b1u << 16u)) == 0u)
-    {
-        std::this_thread::sleep_for(1us);
-    }
-    spiPtr2->CS = spiPtr2->CS & ~(0b1 << 7); // Clear Transfer Active bit
-    pin6.Toggle();
-    for (int i = 0; i < rxBufs_.at(0).size() / 4; i++)
-    {
-        uint32_t rxBytes = rxBuffer_[i];
-        rxBufs_.at(0)[i*4] = rxBytes & 0b11111111;
-        rxBufs_.at(0)[i*4+1] = rxBytes & (0b11111111 << 8);
-        rxBufs_.at(0)[i*4+2] = rxBytes & (0b11111111 << 16);
-        rxBufs_.at(0)[i*4+3] = rxBytes & (0b11111111 << 24);
-    }
-    for (int i = 0; i < rxBufs_.at(6).size() / 4; i++)
-    {
-        uint32_t rxBytes = rxBuffer_[i+256];
-        rxBufs_.at(6)[i*4] = rxBytes & 0b11111111;
-        rxBufs_.at(6)[i*4+1] = rxBytes & (0b11111111 << 8);
-        rxBufs_.at(6)[i*4+2] = rxBytes & (0b11111111 << 16);
-        rxBufs_.at(6)[i*4+3] = rxBytes & (0b11111111 << 24);
-    }
-    pin6.Toggle();
 }
 
 } // namespace robot_interface2
