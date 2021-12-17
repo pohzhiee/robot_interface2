@@ -79,6 +79,7 @@ class StateEstimator::Impl
             [this](auto * /*topicName*/, const auto &msg, auto /*time*/, auto /*clock*/, auto /*id*/) {
                 std::lock_guard lock(motorDataMutex_);
                 auto stateEstimatorMsg = robot_interface::StateEstimatorMessage();
+                stateEstimatorMsg.set_message_id(msg.message_id());
                 ProcessMotorData(stateEstimatorMsg, msg);
                 if(steady_clock::now() - lastImuMessageTime_ > 50ms && latestImuEstimatedState_.has_value()){
                     std::cerr << "Stale imu message" << std::endl;
@@ -181,7 +182,6 @@ bool StateEstimator::Impl::ProcessMotorData(robot_interface::StateEstimatorMessa
             std::cerr << pair.first << ' ';
         }
         std::cerr << std::endl;
-        return false;
     }
     auto jointPosArrPtr = msg.mutable_joint_positions();
     auto jointVelArrPtr = msg.mutable_joint_velocities();
