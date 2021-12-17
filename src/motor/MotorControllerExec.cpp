@@ -25,8 +25,8 @@ int main()
         return -1;
     }
     auto simulSpi = std::make_shared<SimultaneousSPI>(SPISettings{}, gpioMmapPtr, spiMmapPtr);
-    std::array<DMASPISetting, 2> spiSetting = {DMASPISetting{.SPI_CLK = 50, .rxDmaNum = 0, .txDmaNum = 1},
-                                               DMASPISetting{.SPI_CLK = 50, .rxDmaNum = 2, .txDmaNum = 3}};
+    std::array<DMASPISetting, 2> spiSetting = {DMASPISetting{.SPI_CLK = 20, .rxDmaNum = 7, .txDmaNum = 8},
+                                               DMASPISetting{.SPI_CLK = 20, .rxDmaNum = 9, .txDmaNum = 10}};
     auto dmaSpi = std::make_shared<DMASPI>(spiSetting, gpioMmapPtr, dmaMmapPtr, spiMmapPtr);
     auto a = robot_interface2::MotorController(std::move(dmaSpi));
     while (eCAL::Ok())

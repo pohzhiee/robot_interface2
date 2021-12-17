@@ -35,6 +35,7 @@ class MotorController::Impl
     std::thread runThread_;
     std::mutex timeMutex_, spiMutex_;
     std::atomic<bool> stopRequested_{false};
+    uint32_t idleMessageId{0};
 };
 
 MotorController::Impl::Impl(std::shared_ptr<RpiSPIDriver> &&spi)
@@ -92,7 +93,7 @@ void MotorController::Impl::RunLoop()
         std::this_thread::sleep_until(next);
         if (stopRequested_)
             return;
-        next = next + duration<int64_t, std::ratio<1, 50>>{1};
+        next = next + duration<int64_t, std::ratio<1, 500>>{1};
         uint64_t timeDiffMs;
         {
             std::lock_guard lock(timeMutex_);
@@ -108,8 +109,9 @@ void MotorController::Impl::RunLoop()
             constexpr MotorCommandSingle readCmd =
                 MotorCommandSingle{.CommandType = MotorCommandType::Read, .reserved = 0, .Param = {}, .reserved2 = 0};
             CommandMessage message{.messageType = MessageType::CommandMessage,
-                                   .MessageId = 1,
+                                   .MessageId = idleMessageId,
                                    .MotorCommands = {readCmd, readCmd, readCmd, readCmd, readCmd, readCmd}};
+            idleMessageId++;
             message.GenerateCRC();
             spi_->AddTransceiveData(0, span<uint8_t>(reinterpret_cast<uint8_t *>(&message), sizeof(message)),
                                     span<uint8_t>(reinterpret_cast<uint8_t *>(&frontFeedback), sizeof(frontFeedback)));

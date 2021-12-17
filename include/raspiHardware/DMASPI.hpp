@@ -45,9 +45,16 @@ class DMASPI : public RpiSPIDriver
     uintptr_t dmaMmapPtr_{};
     uintptr_t spiMmapPtr_{};
     std::array<span<uint8_t>, 7> rxBufs_{};
-    UncachedMemBlock conBlockMemBlock_{}, txDataMemBlock_{}, rxDataMemBlock_{};
-    span<DMAControlBlock, Page_Size / sizeof(DMAControlBlock)> conBlocks_{nullptr, Page_Size / sizeof(DMAControlBlock)};
-    span<volatile uint32_t, Page_Size / 4> txBuffer_{nullptr, Page_Size / 4}, rxBuffer_{nullptr, Page_Size / 4};
+    std::array<UncachedMemBlock, 2> conBlockMemBlock_{};
+    std::array<span<volatile DMAControlBlock, Page_Size / sizeof(DMAControlBlock)>, 2> conBlocks_{
+        span<DMAControlBlock, Page_Size / sizeof(DMAControlBlock)>{nullptr, Page_Size / sizeof(DMAControlBlock)},
+        span<DMAControlBlock, Page_Size / sizeof(DMAControlBlock)>{nullptr, Page_Size / sizeof(DMAControlBlock)}};
+    std::array<span<volatile uint32_t, Page_Size / 4>, 2> txBuffer_{
+        span<volatile uint32_t, Page_Size / 4>{nullptr, Page_Size / 4},
+        span<volatile uint32_t, Page_Size / 4>{nullptr, Page_Size / 4}};
+    std::array<span<volatile uint32_t, Page_Size / 4>, 2> rxBuffer_{
+        span<volatile uint32_t, Page_Size / 4>{nullptr, Page_Size / 4},
+        span<volatile uint32_t, Page_Size / 4>{nullptr, Page_Size / 4}};
 };
 } // namespace robot_interface2
 #endif // ROBOT_INTERFACE2_DMASPI_HPP
