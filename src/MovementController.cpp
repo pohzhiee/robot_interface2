@@ -184,6 +184,7 @@ void SomeClass::RunLoop()
         if (loopStartTime > next)
         {
             next = loopStartTime;
+            std::cerr << "Timing missed" << std::endl;
         }
         std::this_thread::sleep_until(next);
         next = next + duration<int64_t, std::ratio<1, 800>>{1};

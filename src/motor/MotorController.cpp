@@ -99,7 +99,7 @@ void MotorController::Impl::RunLoop()
             std::lock_guard lock(timeMutex_);
             timeDiffMs = duration_cast<milliseconds>(steady_clock::now() - lastCmdMsgTime_).count();
         }
-        if (timeDiffMs < 1000)
+        if (timeDiffMs < 100)
         {
             continue;
         }
