@@ -93,7 +93,7 @@ void MotorController::Impl::RunLoop()
         std::this_thread::sleep_until(next);
         if (stopRequested_)
             return;
-        next = next + duration<int64_t, std::ratio<1, 500>>{1};
+        next = next + duration<int64_t, std::ratio<1, 50>>{1};
         uint64_t timeDiffMs;
         {
             std::lock_guard lock(timeMutex_);
