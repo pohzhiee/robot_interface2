@@ -92,6 +92,7 @@ class SomeClass
         const robot_interface::FlyskyMessage &flyskyMsg);
     robot_interface::MotorCmdMsg RunZeroTorque();
     robot_interface::MotorCmdMsg RunZeroPosition();
+    robot_interface::MotorCmdMsg RunRead();
 
   private:
     std::optional<robot_interface::StateEstimatorMessage> GetLatestStateEstimatorMsg();
@@ -190,8 +191,10 @@ void SomeClass::RunLoop()
         next = next + duration<int64_t, std::ratio<1, 800>>{1};
 
         auto latestStateEstimatorMessage = GetLatestStateEstimatorMsg();
-        if (!latestStateEstimatorMessage.has_value())
+        if (!latestStateEstimatorMessage.has_value()){
+            motorCmdPub_->Send(RunRead());
             continue;
+        }
         auto latestFlyskyMessage = GetLatestFlyskyMsg();
         if (!latestFlyskyMessage.has_value())
             continue;
@@ -232,6 +235,23 @@ void SomeClass::RunLoop()
         motorCmdPub_->Send(cmdMsg.value());
     }
 }
+
+robot_interface::MotorCmdMsg SomeClass::RunRead()
+{
+    robot_interface::MotorCmdMsg cmdMsg;
+    auto cmdArrPtr = cmdMsg.mutable_commands();
+    for (int i = 0; i < 12; i++)
+    {
+        auto motorCmdPtr = cmdArrPtr->Add();
+        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_READ);
+        motorCmdPtr->set_motor_id(i);
+        motorCmdPtr->set_parameter(0.0);
+    }
+    cmdMsg.set_message_id(messageCount_);
+    messageCount_++;
+    return cmdMsg;
+}
+
 robot_interface::MotorCmdMsg SomeClass::RunZeroTorque()
 {
     robot_interface::MotorCmdMsg cmdMsg;
@@ -348,6 +368,7 @@ std::optional<robot_interface::StateEstimatorMessage> SomeClass::GetLatestStateE
     }
     return latestStateEstimatorMessage_.value();
 }
+
 std::optional<robot_interface::FlyskyMessage> SomeClass::GetLatestFlyskyMsg()
 {
     std::lock_guard lock(flyskyMutex_);
@@ -364,6 +385,7 @@ std::optional<robot_interface::FlyskyMessage> SomeClass::GetLatestFlyskyMsg()
     }
     return latestFlyskyMessage_.value();
 }
+
 
 int main(int argc, char *argv[])
 {
