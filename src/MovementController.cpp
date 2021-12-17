@@ -336,13 +336,13 @@ std::optional<robot_interface::StateEstimatorMessage> SomeClass::GetLatestStateE
     }
     if (steady_clock::now() - lastStateEstimatorMessageTime_ > 500ms)
     {
-        spdlog::debug("Last state estimator message more than 500ms old");
+        spdlog::info("Last state estimator message more than 500ms old");
         latestStateEstimatorMessage_ = std::nullopt;
         return std::nullopt;
     }
     if (latestStateEstimatorMessage_->joint_positions().size() != 12)
     {
-        spdlog::debug(fmt::format("Last state estimator message does not have 12 joint positions, has: {}",
+        spdlog::info(fmt::format("Last state estimator message does not have 12 joint positions, has: {}",
                                   latestStateEstimatorMessage_->joint_positions().size()));
         return std::nullopt;
     }
@@ -358,7 +358,7 @@ std::optional<robot_interface::FlyskyMessage> SomeClass::GetLatestFlyskyMsg()
     }
     if (steady_clock::now() - lastFlyskyMessageTime_ > 500ms)
     {
-        spdlog::debug("Last flysky message more than 500ms old");
+        spdlog::info("Last flysky message more than 500ms old");
         latestFlyskyMessage_ = std::nullopt;
         return std::nullopt;
     }
