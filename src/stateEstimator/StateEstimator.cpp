@@ -29,19 +29,20 @@ robot_interface::StateEstimatorMessage FillMessage(uint32_t id, const robot_inte
 }
 
 //(*(msg.mutable_base_orientation())) = latestImuMessage.base_orientation();
-//auto *linVelPtr = msg.mutable_world_linear_velocity();
-//linVelPtr->set_x(worldLinVel.x());
-//linVelPtr->set_y(worldLinVel.y());
-//linVelPtr->set_z(worldLinVel.z());
-//auto *angVelPtr = msg.mutable_world_angular_velocity();
-//angVelPtr->set_x(worldAngularVel.x());
-//angVelPtr->set_y(worldAngularVel.y());
-//angVelPtr->set_z(worldAngularVel.z());
-//auto *linAccPtr = msg.mutable_world_linear_acceleration();
-//linAccPtr->set_x(worldLinAcc.x());
-//linAccPtr->set_y(worldLinAcc.y());
-//linAccPtr->set_z(worldLinAcc.z());
-struct ImuEstimatedState{
+// auto *linVelPtr = msg.mutable_world_linear_velocity();
+// linVelPtr->set_x(worldLinVel.x());
+// linVelPtr->set_y(worldLinVel.y());
+// linVelPtr->set_z(worldLinVel.z());
+// auto *angVelPtr = msg.mutable_world_angular_velocity();
+// angVelPtr->set_x(worldAngularVel.x());
+// angVelPtr->set_y(worldAngularVel.y());
+// angVelPtr->set_z(worldAngularVel.z());
+// auto *linAccPtr = msg.mutable_world_linear_acceleration();
+// linAccPtr->set_x(worldLinAcc.x());
+// linAccPtr->set_y(worldLinAcc.y());
+// linAccPtr->set_z(worldLinAcc.z());
+struct ImuEstimatedState
+{
     robot_interface::Quaternion baseOrientation;
     robot_interface::Vector3 worldLinVel;
     robot_interface::Vector3 worldAngVel;
@@ -70,8 +71,13 @@ class StateEstimator::Impl
         imuMessageSub_->AddReceiveCallback(
             [this](auto * /*topicName*/, const auto &msg, auto /*time*/, auto /*clock*/, auto /*id*/) {
                 lastImuMessageTime_ = steady_clock::now();
+                if (lastImuMessage_ == std::nullopt)
+                {
+                    lastImuMessage_ = msg;
+                    return;
+                }
                 auto imuEstimatedState = ProcessImuData(msg);
-                lastImuMessage_ = latestImuMessage_;
+                lastImuMessage_ = msg;
                 std::lock_guard lock(imuDataMutex_);
                 latestImuEstimatedState_ = imuEstimatedState;
             });
@@ -81,11 +87,13 @@ class StateEstimator::Impl
                 auto stateEstimatorMsg = robot_interface::StateEstimatorMessage();
                 stateEstimatorMsg.set_message_id(msg.message_id());
                 ProcessMotorData(stateEstimatorMsg, msg);
-                if(steady_clock::now() - lastImuMessageTime_ > 50ms && latestImuEstimatedState_.has_value()){
+                if (steady_clock::now() - lastImuMessageTime_ > 50ms && latestImuEstimatedState_.has_value())
+                {
                     std::cerr << "Stale imu message" << std::endl;
                     latestImuEstimatedState_ = std::nullopt;
                 }
-                if(latestImuEstimatedState_.has_value()){
+                if (latestImuEstimatedState_.has_value())
+                {
                     *stateEstimatorMsg.mutable_base_orientation() = latestImuEstimatedState_->baseOrientation;
                     *stateEstimatorMsg.mutable_world_linear_acceleration() = latestImuEstimatedState_->worldLinAcc;
                     *stateEstimatorMsg.mutable_world_linear_velocity() = latestImuEstimatedState_->worldLinVel;
@@ -100,7 +108,8 @@ class StateEstimator::Impl
 
   private:
     ImuEstimatedState ProcessImuData(const robot_interface::ImuMessage &msg);
-    bool ProcessMotorData(robot_interface::StateEstimatorMessage &msg, const robot_interface::MotorFeedbackMsg &feedbackMsg);
+    bool ProcessMotorData(robot_interface::StateEstimatorMessage &msg,
+                          const robot_interface::MotorFeedbackMsg &feedbackMsg);
     // eCAL pub and subs
     std::unique_ptr<CSubscriber<robot_interface::MotorFeedbackMsg>> motorFeedbackSub_{nullptr};
     std::unique_ptr<CSubscriber<robot_interface::ImuMessage>> imuMessageSub_{nullptr};
@@ -120,21 +129,20 @@ class StateEstimator::Impl
     uint32_t msgCount_{0};
 };
 
-ImuEstimatedState StateEstimator::Impl::ProcessImuData(const robot_interface::ImuMessage &msg){
+ImuEstimatedState StateEstimator::Impl::ProcessImuData(const robot_interface::ImuMessage &msg)
+{
     // sampleTimeFine on imu is on 10kHz clock rate, and wraps around at 2^32, so will take 4.97 days
     // We assume that the imu will not be on for that long, so we always assume it will not wrap around
     auto imuSampleTimeDiff = msg.sample_time_ns() - lastImuMessage_->sample_time_ns();
-    Eigen::Quaterniond quat(msg.base_orientation().w(), msg.base_orientation().x(),
-                            msg.base_orientation().y(), msg.base_orientation().z());
+    Eigen::Quaterniond quat(msg.base_orientation().w(), msg.base_orientation().x(), msg.base_orientation().y(),
+                            msg.base_orientation().z());
     auto baseToWorldRotMat = quat.normalized().toRotationMatrix();
 
-    Eigen::Vector3d baseAngularVel(msg.base_angular_velocity().x(),
-                                   msg.base_angular_velocity().y(),
+    Eigen::Vector3d baseAngularVel(msg.base_angular_velocity().x(), msg.base_angular_velocity().y(),
                                    msg.base_angular_velocity().z());
     Eigen::Vector3d worldAngularVel = baseToWorldRotMat * baseAngularVel;
 
-    Eigen::Vector3d baseLinAcc(msg.base_linear_acceleration().x(),
-                               msg.base_linear_acceleration().y(),
+    Eigen::Vector3d baseLinAcc(msg.base_linear_acceleration().x(), msg.base_linear_acceleration().y(),
                                msg.base_linear_acceleration().z());
     Eigen::Vector3d worldLinAcc = baseToWorldRotMat * baseLinAcc;
     Eigen::Vector3d worldLinAccFiltered = Eigen::Vector3d::Zero();
@@ -161,7 +169,8 @@ ImuEstimatedState StateEstimator::Impl::ProcessImuData(const robot_interface::Im
     return temp;
 }
 
-bool StateEstimator::Impl::ProcessMotorData(robot_interface::StateEstimatorMessage &msg, const robot_interface::MotorFeedbackMsg &feedbackMsg)
+bool StateEstimator::Impl::ProcessMotorData(robot_interface::StateEstimatorMessage &msg,
+                                            const robot_interface::MotorFeedbackMsg &feedbackMsg)
 {
     // we use sorted map to guarantee our joint positions will always be in ascending order of motor id
     std::map<uint32_t, double> jointPosMap{}, jointVelMap{};
