@@ -96,8 +96,6 @@ class SomeClass
   private:
     std::optional<robot_interface::StateEstimatorMessage> GetLatestStateEstimatorMsg();
     std::optional<robot_interface::FlyskyMessage> GetLatestFlyskyMsg();
-    std::unique_ptr<RecoveryStandController> recoveryStandController_;
-    std::unique_ptr<MainController> mainController_;
     // Pub subs
     std::unique_ptr<CSubscriber<robot_interface::StateEstimatorMessage>> stateEstimatorSub_;
     std::unique_ptr<CSubscriber<robot_interface::FlyskyMessage>> flyskySub_;
@@ -211,7 +209,6 @@ void SomeClass::RunLoop()
             if (previousRunMode_ != RunMode::BalanceWalk)
             {
                 mainControllerStartTime_ = high_resolution_clock::now();
-                mainController_->Reset();
             }
             RunBalanceController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
             previousRunMode_ = RunMode::BalanceWalk;
@@ -220,7 +217,6 @@ void SomeClass::RunLoop()
             if (previousRunMode_ != RunMode::Recovery)
             {
                 recoveryControllerStartTime_ = high_resolution_clock::now();
-                recoveryStandController_->Reset();
             }
             RunRecoveryStandController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
             previousRunMode_ = RunMode::Recovery;
@@ -245,27 +241,26 @@ void SomeClass::RunBalanceController(const robot_interface::StateEstimatorMessag
                                      const robot_interface::FlyskyMessage &flyskyMsg)
 {
     using namespace nlohmann;
-    ControllerInputData data;
-    data.estimatedState = StateEstimatorDataFromProtobuf(stateEstimatorMsg);
-    data.userInput = UserInputFromFlyskyProtobuf(flyskyMsg);
-    data.timeSinceStart = duration_cast<nanoseconds>(high_resolution_clock::now() - mainControllerStartTime_).count();
+    const auto &estimatedState = StateEstimatorDataFromProtobuf(stateEstimatorMsg);
+    const auto &userInput = UserInputFromFlyskyProtobuf(flyskyMsg);
+    const auto timeSinceStart = duration_cast<nanoseconds>(high_resolution_clock::now() - mainControllerStartTime_).count();
     {
         // Record data
         json dataItem;
         json baseRotJson, worldAngVelJson, worldLinVelJson;
-        to_json(baseRotJson, data.estimatedState.baseRotation);
-        to_json(worldAngVelJson, data.estimatedState.worldAngularVelocity);
-        to_json(worldLinVelJson, data.estimatedState.worldLinearVelocity);
+        to_json(baseRotJson, estimatedState.baseRotation);
+        to_json(worldAngVelJson, estimatedState.worldAngularVelocity);
+        to_json(worldLinVelJson, estimatedState.worldLinearVelocity);
         dataItem["baseRotation"] = baseRotJson;
         dataItem["worldAngularVel"] = worldAngVelJson;
         dataItem["worldLinearVel"] = worldLinVelJson;
-        dataItem["jointPositions"] = data.estimatedState.jointPositions;
-        dataItem["jointVelocities"] = data.estimatedState.jointVelocities;
-        dataItem["xVelCmd"] = data.userInput.x_vel_cmd;
-        dataItem["yVelCmd"] = data.userInput.y_vel_cmd;
-        dataItem["yawTurnRate"] = data.userInput.yaw_turn_rate;
-        dataItem["height"] = data.userInput.height;
-        dataItem["timeSinceStart"] = data.timeSinceStart;
+        dataItem["jointPositions"] = estimatedState.jointPositions;
+        dataItem["jointVelocities"] = estimatedState.jointVelocities;
+        dataItem["xVelCmd"] = userInput.x_vel_cmd;
+        dataItem["yVelCmd"] = userInput.y_vel_cmd;
+        dataItem["yawTurnRate"] = userInput.yaw_turn_rate;
+        dataItem["height"] = userInput.height;
+        dataItem["timeSinceStart"] = timeSinceStart;
         dataItems.emplace_back(std::move(dataItem));
     }
 }
