@@ -99,7 +99,6 @@ class SomeClass
     // Pub subs
     std::unique_ptr<CSubscriber<robot_interface::StateEstimatorMessage>> stateEstimatorSub_;
     std::unique_ptr<CSubscriber<robot_interface::FlyskyMessage>> flyskySub_;
-    std::unique_ptr<CPublisher<robot_interface::MotorCmdMsg>> motorCmdPub_;
     // Subscriber data
     std::optional<robot_interface::FlyskyMessage> latestFlyskyMessage_{std::nullopt};
     std::optional<robot_interface::StateEstimatorMessage> latestStateEstimatorMessage_{std::nullopt};
@@ -111,7 +110,6 @@ class SomeClass
     std::thread runThread_;
     std::atomic<bool> stopRequested_{false};
     std::chrono::time_point<std::chrono::high_resolution_clock> mainControllerStartTime_{};
-    std::chrono::time_point<std::chrono::high_resolution_clock> recoveryControllerStartTime_{};
 
     // State management
     std::atomic<RunMode> runMode_{RunMode::ZeroTorque};
@@ -214,10 +212,6 @@ void SomeClass::RunLoop()
             previousRunMode_ = RunMode::BalanceWalk;
             break;
         case RunMode::Recovery:
-            if (previousRunMode_ != RunMode::Recovery)
-            {
-                recoveryControllerStartTime_ = high_resolution_clock::now();
-            }
             RunRecoveryStandController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
             previousRunMode_ = RunMode::Recovery;
             break;
@@ -311,7 +305,6 @@ std::optional<robot_interface::FlyskyMessage> SomeClass::GetLatestFlyskyMsg()
 
 int main(int argc, char *argv[])
 {
-    std::string robotName(argv[1]);
     // initialize eCAL API
     eCAL::Initialize({}, "Robot1 Data Recorder");
 

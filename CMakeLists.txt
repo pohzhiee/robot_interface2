@@ -57,7 +57,7 @@ target_include_directories(
         data_recorder PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(data_recorder PUBLIC eCAL::core robot_interface_protobuf
-        nlohmann_json::nlohmann_json spdlog::spdlog)
+        nlohmann_json::nlohmann_json spdlog::spdlog fmt::fmt)
 
 add_executable(robot_system_pub src/RobotSystemPub.cpp)
 target_include_directories(
