@@ -81,7 +81,7 @@ class DummyBalanceController : public BalanceController
 class SomeClass
 {
   public:
-    explicit SomeClass(const std::string &robotName);
+    explicit SomeClass(const std::string &robotName, int legNum);
     ~SomeClass();
 
     void RunLoop();
@@ -121,12 +121,13 @@ class SomeClass
     std::atomic<RunMode> runMode_{RunMode::ZeroTorque};
     RunMode previousRunMode_{RunMode::ZeroTorque};
     std::uint64_t messageCount_{0};
+    int legNum_{};
 };
 
-SomeClass::SomeClass(const std::string &robotName)
+SomeClass::SomeClass(const std::string &robotName, int legNum)
     : stateEstimatorSub_(std::make_unique<CSubscriber<robot_interface::StateEstimatorMessage>>("state_estimator")),
       flyskySub_(std::make_unique<CSubscriber<robot_interface::FlyskyMessage>>("flysky")),
-      motorCmdPub_(std::make_unique<CPublisher<robot_interface::MotorCmdMsg>>("motor_cmd"))
+      motorCmdPub_(std::make_unique<CPublisher<robot_interface::MotorCmdMsg>>("motor_cmd")), legNum_(legNum)
 {
     std::string tomlPath = fmt::format("{}{}/controllerConfig.toml", config::install_robots_path, robotName);
     std::string urdfPath = fmt::format("{}{}/{}.urdf", config::install_robots_path, robotName, robotName);
@@ -183,15 +184,15 @@ void SomeClass::RunLoop()
     mainControllerStartTime_ = high_resolution_clock::now();
     while (!stopRequested_)
     {
-        auto GetCmd = [&](){
+        auto GetCmd = [&]() {
             auto latestStateEstimatorMessage = GetLatestStateEstimatorMsg();
             if (!latestStateEstimatorMessage.has_value())
             {
-                return RunRead();
+                return RunZeroTorque();
             }
             auto latestFlyskyMessage = GetLatestFlyskyMsg();
             if (!latestFlyskyMessage.has_value())
-                return RunRead();
+                return RunZeroTorque();
             std::optional<robot_interface::MotorCmdMsg> cmdMsg;
             switch (runMode_)
             {
@@ -225,7 +226,7 @@ void SomeClass::RunLoop()
                 cmdMsg = std::nullopt;
             }
             if (!cmdMsg.has_value())
-                return RunRead();
+                return RunZeroTorque();
             return cmdMsg.value();
         };
 
@@ -281,9 +282,18 @@ robot_interface::MotorCmdMsg SomeClass::RunZeroPosition()
     for (int i = 0; i < 12; i++)
     {
         auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_parameter(0.0);
+        if (i >= legNum_ * 3 && i < (legNum_ * 3) + 3)
+        {
+            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
+            motorCmdPtr->set_motor_id(i);
+            motorCmdPtr->set_parameter(0.0);
+        }
+        else
+        {
+            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_READ);
+            motorCmdPtr->set_motor_id(i);
+            motorCmdPtr->set_parameter(0.0);
+        }
     }
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;
@@ -308,21 +318,34 @@ std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
     for (int i = 0; i < 4; i++)
     {
         auto swingJointVel = output->swingJointVel.at(i);
-        for (int j = 0; j < 3; j++)
+        if (i == legNum_)
         {
-            auto motorCmdPtr = cmdArrPtr->Add();
-            if (swingJointVel.has_value())
+            for (int j = 0; j < 3; j++)
             {
-                // This only has value during swing, so during stance we are still using torque controller
-                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_VELOCITY);
-                motorCmdPtr->set_motor_id(i * 3 + j);
-                motorCmdPtr->set_parameter(swingJointVel.value()(j));
+                auto motorCmdPtr = cmdArrPtr->Add();
+                if (swingJointVel.has_value())
+                {
+                    // This only has value during swing, so during stance we are still using torque controller
+                    motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_VELOCITY);
+                    motorCmdPtr->set_motor_id(i * 3 + j);
+                    motorCmdPtr->set_parameter(swingJointVel.value()(j));
+                }
+                else
+                {
+                    motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+                    motorCmdPtr->set_motor_id(i * 3 + j);
+                    motorCmdPtr->set_parameter(output->commands.at(i * 3 + j));
+                }
             }
-            else
+        }
+        else
+        {
+            for (int j = 0; j < 3; j++)
             {
-                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
+                auto motorCmdPtr = cmdArrPtr->Add();
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_READ);
                 motorCmdPtr->set_motor_id(i * 3 + j);
-                motorCmdPtr->set_parameter(output->commands.at(i * 3 + j));
+                motorCmdPtr->set_parameter(0.0);
             }
         }
     }
@@ -351,10 +374,20 @@ robot_interface::MotorCmdMsg SomeClass::RunRecoveryStandController(
 
     for (int i = 0; i < 12; i++)
     {
+
         auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_VELOCITY);
-        motorCmdPtr->set_parameter(velCmd(i));
+        if (i >= legNum_ * 3 && i < (legNum_ * 3) + 3)
+        {
+            motorCmdPtr->set_motor_id(i);
+            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_VELOCITY);
+            motorCmdPtr->set_parameter(velCmd(i));
+        }
+        else{
+            motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_READ);
+            motorCmdPtr->set_motor_id(i);
+            motorCmdPtr->set_parameter(0.0);
+        }
+
     }
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;
@@ -403,19 +436,35 @@ std::optional<robot_interface::FlyskyMessage> SomeClass::GetLatestFlyskyMsg()
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2)
+    if (argc < 3)
     {
-        std::cerr << "Please input robot name, e.g.: ./movement_controller robot1" << std::endl;
+        std::cerr << "Please input robot name and leg to be controlled, e.g.: ./movement_controller robot1 0"
+                  << std::endl;
         return 1;
     }
     std::string robotName(argv[1]);
+    char *p;
+    auto legNum = strtol(argv[2], &p, 0);
+    if (*p != '\0')
+    {
+        std::cerr << "an invalid character was found before the end of the string" << std::endl;
+        return 1;
+    }
+    if (legNum > 3 || legNum < 0)
+    {
+        std::cerr << "Invalid legnum provided with value of: " << legNum << ", expected to be values of 0,1,2,3"
+                  << std::endl;
+        return 1;
+    }
+    std::cout << "Using legnum of " << legNum << std::endl;
+
     // initialize eCAL API
     eCAL::Initialize({}, "Robot1 Movement Controller");
 
     // set process state
     eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "Robot1 Movement Controller");
 
-    SomeClass a(robotName);
+    SomeClass a(robotName, legNum);
     while (eCAL::Ok())
     {
         eCAL::Process::SleepMS(100);
