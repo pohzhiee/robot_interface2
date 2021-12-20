@@ -70,8 +70,12 @@ class StateEstimator::Impl
         imuMessageSub_->AddReceiveCallback(
             [this](auto * /*topicName*/, const auto &msg, auto /*time*/, auto /*clock*/, auto /*id*/) {
                 lastImuMessageTime_ = steady_clock::now();
+                if(lastImuMessage_ == std::nullopt){
+                    lastImuMessage_ = msg;
+                    return;
+                }
                 auto imuEstimatedState = ProcessImuData(msg);
-                lastImuMessage_ = latestImuMessage_;
+                lastImuMessage_ = msg;
                 std::lock_guard lock(imuDataMutex_);
                 latestImuEstimatedState_ = imuEstimatedState;
             });
@@ -106,7 +110,7 @@ class StateEstimator::Impl
     std::unique_ptr<CSubscriber<robot_interface::ImuMessage>> imuMessageSub_{nullptr};
     std::unique_ptr<CPublisher<robot_interface::StateEstimatorMessage>> stateEstimatorPub_{nullptr};
     // Subscriber data
-    std::optional<robot_interface::ImuMessage> latestImuMessage_{std::nullopt};
+//    std::optional<robot_interface::ImuMessage> latestImuMessage_{std::nullopt};
     std::optional<robot_interface::ImuMessage> lastImuMessage_{std::nullopt};
     std::optional<ImuEstimatedState> latestImuEstimatedState_{std::nullopt};
     std::chrono::time_point<std::chrono::steady_clock> lastImuMessageTime_{};
