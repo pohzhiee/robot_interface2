@@ -308,6 +308,7 @@ std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
     for (int i = 0; i < 4; i++)
     {
         auto swingJointVel = output->swingJointVel.at(i);
+        auto stanceJointVel = output->stanceJointVel.at(i);
         for (int j = 0; j < 3; j++)
         {
             auto motorCmdPtr = cmdArrPtr->Add();
@@ -318,11 +319,17 @@ std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
                 motorCmdPtr->set_motor_id(i * 3 + j);
                 motorCmdPtr->set_parameter(swingJointVel.value()(j));
             }
-            else
+            else if(stanceJointVel.has_value())
             {
+                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_VELOCITY);
+                motorCmdPtr->set_motor_id(i * 3 + j);
+                motorCmdPtr->set_parameter(stanceJointVel.value()(j));
+            }
+            else{
                 motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
                 motorCmdPtr->set_motor_id(i * 3 + j);
-                motorCmdPtr->set_parameter(output->commands.at(i * 3 + j));
+                motorCmdPtr->set_parameter(0.0);
+                spdlog::warn("No stance vel and no swing vel");
             }
         }
     }
