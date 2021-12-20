@@ -2,10 +2,14 @@
 #include <hyq_cheetah/MainController.hpp>
 #include <hyq_cheetah/RecoveryStandController.hpp>
 
+#include "robot_interface2/utils/NlohmannJsonEigenConversion.hpp"
 #include <ecal/ecal.h>
 #include <ecal/msg/protobuf/publisher.h>
 #include <ecal/msg/protobuf/subscriber.h>
+#include <fstream>
 #include <hyq_cheetah/helpers/config.hpp>
+#include <iomanip>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <robot_interface_protobuf/flysky_message.pb.h>
 #include <robot_interface_protobuf/motor_cmd_msg.pb.h>
@@ -120,6 +124,7 @@ class SomeClass
     std::atomic<RunMode> runMode_{RunMode::ZeroTorque};
     RunMode previousRunMode_{RunMode::ZeroTorque};
     std::uint64_t messageCount_{0};
+    std::vector<nlohmann::json> dataItems{};
 };
 
 SomeClass::SomeClass(const std::string &robotName)
@@ -191,7 +196,8 @@ void SomeClass::RunLoop()
         next = next + duration<int64_t, std::ratio<1, 800>>{1};
 
         auto latestStateEstimatorMessage = GetLatestStateEstimatorMsg();
-        if (!latestStateEstimatorMessage.has_value()){
+        if (!latestStateEstimatorMessage.has_value())
+        {
             motorCmdPub_->Send(RunRead());
             continue;
         }
@@ -199,6 +205,14 @@ void SomeClass::RunLoop()
         if (!latestFlyskyMessage.has_value())
             continue;
         std::optional<robot_interface::MotorCmdMsg> cmdMsg;
+        if (previousRunMode_ == RunMode::BalanceWalk && runMode_ != RunMode::BalanceWalk)
+        {
+            std::ofstream o("pretty.json");
+            nlohmann::json j;
+            j = dataItems;
+            o << std::setw(4) << j << std::endl;
+            dataItems.clear();
+        }
         switch (runMode_)
         {
         case RunMode::ZeroTorque:
@@ -285,11 +299,29 @@ robot_interface::MotorCmdMsg SomeClass::RunZeroPosition()
 std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
     const robot_interface::StateEstimatorMessage &stateEstimatorMsg, const robot_interface::FlyskyMessage &flyskyMsg)
 {
-
+    using namespace nlohmann;
     ControllerInputData data;
     data.estimatedState = StateEstimatorDataFromProtobuf(stateEstimatorMsg);
     data.userInput = UserInputFromFlyskyProtobuf(flyskyMsg);
     data.timeSinceStart = duration_cast<nanoseconds>(high_resolution_clock::now() - mainControllerStartTime_).count();
+    {
+        // Record data
+        json dataItem;
+        json baseRotJson, worldAngVelJson, worldLinVelJson;
+        to_json(baseRotJson, data.estimatedState.baseRotation);
+        to_json(worldAngVelJson, data.estimatedState.worldAngularVelocity);
+        to_json(worldLinVelJson, data.estimatedState.worldLinearVelocity);
+        dataItem["baseRotation"] = baseRotJson;
+        dataItem["worldAngularVel"] = worldAngVelJson;
+        dataItem["worldLinearVel"] = worldLinVelJson;
+        dataItem["jointPositions"] = data.estimatedState.jointPositions;
+        dataItem["jointVelocities"] = data.estimatedState.jointVelocities;
+        dataItem["xVelCmd"] = data.userInput.x_vel_cmd;
+        dataItem["yVelCmd"] = data.userInput.y_vel_cmd;
+        dataItem["yawTurnRate"] = data.userInput.yaw_turn_rate;
+        dataItem["height"] = data.userInput.height;
+        dataItems.emplace_back(std::move(dataItem));
+    }
     auto output = mainController_->Run(data);
     if (!output.has_value())
     {
@@ -372,7 +404,7 @@ std::optional<robot_interface::StateEstimatorMessage> SomeClass::GetLatestStateE
     if (latestStateEstimatorMessage_->joint_positions().size() != 12)
     {
         spdlog::info(fmt::format("Last state estimator message does not have 12 joint positions, has: {}",
-                                  latestStateEstimatorMessage_->joint_positions().size()));
+                                 latestStateEstimatorMessage_->joint_positions().size()));
         return std::nullopt;
     }
     return latestStateEstimatorMessage_.value();
@@ -394,7 +426,6 @@ std::optional<robot_interface::FlyskyMessage> SomeClass::GetLatestFlyskyMsg()
     }
     return latestFlyskyMessage_.value();
 }
-
 
 int main(int argc, char *argv[])
 {

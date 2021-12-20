@@ -16,6 +16,7 @@ include(cmake/raspi_hardware.cmake)
 include(cmake/xstypes.cmake)
 
 find_package(urdfdom REQUIRED)
+find_package(nlohmann_json REQUIRED)
 find_package(eCAL REQUIRED)
 find_package(robot_interface_protobuf REQUIRED)
 
@@ -49,7 +50,8 @@ target_include_directories(
         movement_controller PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(movement_controller PUBLIC eCAL::core robot_interface_protobuf MainController
-        RecoveryStandController)
+        RecoveryStandController
+        nlohmann_json::nlohmann_json)
 
 add_executable(robot_system_pub src/RobotSystemPub.cpp)
 target_include_directories(
