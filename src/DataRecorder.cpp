@@ -1,12 +1,12 @@
 #include <hyq_cheetah/MPC.hpp>
-#include <hyq_cheetah/MainController.hpp>
-#include <hyq_cheetah/RecoveryStandController.hpp>
 
+#include "robot_interface2/utils/NlohmannJsonEigenConversion.hpp"
 #include <ecal/ecal.h>
 #include <ecal/msg/protobuf/publisher.h>
 #include <ecal/msg/protobuf/subscriber.h>
 #include <fstream>
-#include <hyq_cheetah/helpers/config.hpp>
+#include <iomanip>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <robot_interface_protobuf/flysky_message.pb.h>
 #include <robot_interface_protobuf/motor_cmd_msg.pb.h>
@@ -81,19 +81,17 @@ class DummyBalanceController : public BalanceController
 class SomeClass
 {
   public:
-    explicit SomeClass(const std::string &robotName);
+    explicit SomeClass();
     ~SomeClass();
 
     void RunLoop();
-    std::optional<robot_interface::MotorCmdMsg> RunBalanceController(
-        const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
-        const robot_interface::FlyskyMessage &flyskyMsg);
-    robot_interface::MotorCmdMsg RunRecoveryStandController(
-        const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
-        const robot_interface::FlyskyMessage &flyskyMsg);
-    robot_interface::MotorCmdMsg RunZeroTorque();
-    robot_interface::MotorCmdMsg RunZeroPosition();
-    robot_interface::MotorCmdMsg RunRead();
+    void RunBalanceController(const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
+                              const robot_interface::FlyskyMessage &flyskyMsg);
+    void RunRecoveryStandController(const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
+                                    const robot_interface::FlyskyMessage &flyskyMsg);
+    void RunZeroTorque();
+    void RunZeroPosition();
+    void RunRead();
 
   private:
     std::optional<robot_interface::StateEstimatorMessage> GetLatestStateEstimatorMsg();
@@ -121,21 +119,13 @@ class SomeClass
     std::atomic<RunMode> runMode_{RunMode::ZeroTorque};
     RunMode previousRunMode_{RunMode::ZeroTorque};
     std::uint64_t messageCount_{0};
+    std::vector<nlohmann::json> dataItems{};
 };
 
-SomeClass::SomeClass(const std::string &robotName)
+SomeClass::SomeClass()
     : stateEstimatorSub_(std::make_unique<CSubscriber<robot_interface::StateEstimatorMessage>>("state_estimator")),
-      flyskySub_(std::make_unique<CSubscriber<robot_interface::FlyskyMessage>>("flysky")),
-      motorCmdPub_(std::make_unique<CPublisher<robot_interface::MotorCmdMsg>>("motor_cmd"))
+      flyskySub_(std::make_unique<CSubscriber<robot_interface::FlyskyMessage>>("flysky"))
 {
-    std::string tomlPath = fmt::format("{}{}/controllerConfig.toml", config::install_robots_path, robotName);
-    std::string urdfPath = fmt::format("{}{}/{}.urdf", config::install_robots_path, robotName, robotName);
-    auto mainControllerConfig = ConfigFromToml(tomlPath);
-    auto gait = std::make_shared<Gait>(mainControllerConfig.gaitConfig);
-    //    auto balanceController = std::make_shared<MPC>(mainControllerConfig.mpcConfig);
-    auto balanceController2 = std::make_shared<DummyBalanceController>();
-    mainController_ = std::make_unique<MainController>(mainControllerConfig, balanceController2, gait, urdfPath);
-    recoveryStandController_ = std::make_unique<RecoveryStandController>(mainControllerConfig.recoveryConfig);
     stateEstimatorSub_->AddReceiveCallback(
         [&](auto, const robot_interface::StateEstimatorMessage &msg, auto, auto, auto) {
             std::lock_guard lock(stateEstimatorMutex_);
@@ -194,21 +184,27 @@ void SomeClass::RunLoop()
         auto latestStateEstimatorMessage = GetLatestStateEstimatorMsg();
         if (!latestStateEstimatorMessage.has_value())
         {
-            motorCmdPub_->Send(RunRead());
             continue;
         }
         auto latestFlyskyMessage = GetLatestFlyskyMsg();
         if (!latestFlyskyMessage.has_value())
             continue;
-        std::optional<robot_interface::MotorCmdMsg> cmdMsg;
+        if (previousRunMode_ == RunMode::BalanceWalk && runMode_ != RunMode::BalanceWalk)
+        {
+            std::ofstream o("pretty.json");
+            nlohmann::json j;
+            j = dataItems;
+            o << std::setw(4) << j << std::endl;
+            dataItems.clear();
+        }
         switch (runMode_)
         {
         case RunMode::ZeroTorque:
-            cmdMsg = RunZeroTorque();
+            RunZeroTorque();
             previousRunMode_ = RunMode::ZeroTorque;
             break;
         case RunMode::ZeroPosition:
-            cmdMsg = RunZeroPosition();
+            RunZeroPosition();
             previousRunMode_ = RunMode::ZeroPosition;
             break;
         case RunMode::BalanceWalk:
@@ -217,7 +213,7 @@ void SomeClass::RunLoop()
                 mainControllerStartTime_ = high_resolution_clock::now();
                 mainController_->Reset();
             }
-            cmdMsg = RunBalanceController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
+            RunBalanceController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
             previousRunMode_ = RunMode::BalanceWalk;
             break;
         case RunMode::Recovery:
@@ -226,134 +222,56 @@ void SomeClass::RunLoop()
                 recoveryControllerStartTime_ = high_resolution_clock::now();
                 recoveryStandController_->Reset();
             }
-            cmdMsg = RunRecoveryStandController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
+            RunRecoveryStandController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
             previousRunMode_ = RunMode::Recovery;
             break;
         default:
-            cmdMsg = std::nullopt;
+            break;
         }
-        if (!cmdMsg.has_value())
-            continue;
-        motorCmdPub_->Send(cmdMsg.value());
     }
 }
 
-robot_interface::MotorCmdMsg SomeClass::RunRead()
+void SomeClass::RunRead()
 {
-    robot_interface::MotorCmdMsg cmdMsg;
-    auto cmdArrPtr = cmdMsg.mutable_commands();
-    for (int i = 0; i < 12; i++)
-    {
-        auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_READ);
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_parameter(0.0);
-    }
-    cmdMsg.set_message_id(messageCount_);
-    messageCount_++;
-    return cmdMsg;
 }
 
-robot_interface::MotorCmdMsg SomeClass::RunZeroTorque()
+void SomeClass::RunZeroTorque()
 {
-    robot_interface::MotorCmdMsg cmdMsg;
-    auto cmdArrPtr = cmdMsg.mutable_commands();
-    for (int i = 0; i < 12; i++)
-    {
-        auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_parameter(0.0);
-    }
-    cmdMsg.set_message_id(messageCount_);
-    messageCount_++;
-    return cmdMsg;
 }
-robot_interface::MotorCmdMsg SomeClass::RunZeroPosition()
+void SomeClass::RunZeroPosition()
 {
-    robot_interface::MotorCmdMsg cmdMsg;
-    auto cmdArrPtr = cmdMsg.mutable_commands();
-    for (int i = 0; i < 12; i++)
-    {
-        auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_parameter(0.0);
-    }
-    cmdMsg.set_message_id(messageCount_);
-    messageCount_++;
-    return cmdMsg;
 }
-std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
-    const robot_interface::StateEstimatorMessage &stateEstimatorMsg, const robot_interface::FlyskyMessage &flyskyMsg)
+void SomeClass::RunBalanceController(const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
+                                     const robot_interface::FlyskyMessage &flyskyMsg)
 {
+    using namespace nlohmann;
     ControllerInputData data;
     data.estimatedState = StateEstimatorDataFromProtobuf(stateEstimatorMsg);
     data.userInput = UserInputFromFlyskyProtobuf(flyskyMsg);
     data.timeSinceStart = duration_cast<nanoseconds>(high_resolution_clock::now() - mainControllerStartTime_).count();
-    auto output = mainController_->Run(data);
-    if (!output.has_value())
     {
-        spdlog::debug("Controller generates no output");
-        return std::nullopt;
+        // Record data
+        json dataItem;
+        json baseRotJson, worldAngVelJson, worldLinVelJson;
+        to_json(baseRotJson, data.estimatedState.baseRotation);
+        to_json(worldAngVelJson, data.estimatedState.worldAngularVelocity);
+        to_json(worldLinVelJson, data.estimatedState.worldLinearVelocity);
+        dataItem["baseRotation"] = baseRotJson;
+        dataItem["worldAngularVel"] = worldAngVelJson;
+        dataItem["worldLinearVel"] = worldLinVelJson;
+        dataItem["jointPositions"] = data.estimatedState.jointPositions;
+        dataItem["jointVelocities"] = data.estimatedState.jointVelocities;
+        dataItem["xVelCmd"] = data.userInput.x_vel_cmd;
+        dataItem["yVelCmd"] = data.userInput.y_vel_cmd;
+        dataItem["yawTurnRate"] = data.userInput.yaw_turn_rate;
+        dataItem["height"] = data.userInput.height;
+        dataItem["timeSinceStart"] = data.timeSinceStart;
+        dataItems.emplace_back(std::move(dataItem));
     }
-    robot_interface::MotorCmdMsg cmdMsg;
-    auto cmdArrPtr = cmdMsg.mutable_commands();
-
-    for (int i = 0; i < 4; i++)
-    {
-        auto swingJointVel = output->swingJointVel.at(i);
-        for (int j = 0; j < 3; j++)
-        {
-            auto motorCmdPtr = cmdArrPtr->Add();
-            if (swingJointVel.has_value())
-            {
-                // This only has value during swing, so during stance we are still using torque controller
-                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_VELOCITY);
-                motorCmdPtr->set_motor_id(i * 3 + j);
-                motorCmdPtr->set_parameter(swingJointVel.value()(j));
-            }
-            else
-            {
-                motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_TORQUE);
-                motorCmdPtr->set_motor_id(i * 3 + j);
-                motorCmdPtr->set_parameter(output->commands.at(i * 3 + j));
-            }
-        }
-    }
-    cmdMsg.set_message_id(messageCount_);
-    messageCount_++;
-    return cmdMsg;
 }
-robot_interface::MotorCmdMsg SomeClass::RunRecoveryStandController(
-    const robot_interface::StateEstimatorMessage &stateEstimatorMsg, const robot_interface::FlyskyMessage &flyskyMsg)
+void SomeClass::RunRecoveryStandController(const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
+                                           const robot_interface::FlyskyMessage &flyskyMsg)
 {
-    using Eigen::Map;
-    using Eigen::Matrix;
-    const auto stateEstimatorData = StateEstimatorDataFromProtobuf(stateEstimatorMsg);
-    auto cmd = recoveryStandController_->Run(
-        stateEstimatorData,
-        duration_cast<nanoseconds>(high_resolution_clock::now() - recoveryControllerStartTime_).count());
-    robot_interface::MotorCmdMsg cmdMsg;
-    auto cmdArrPtr = cmdMsg.mutable_commands();
-    auto intermediatePos = recoveryStandController_->GetIntermediatePos();
-    Map<const Matrix<double, 12, 1>> intermediatePosVec(intermediatePos.data(), intermediatePos.size());
-    Map<const Matrix<double, 12, 1>> currentPosVec(stateEstimatorData.jointPositions.data(),
-                                                   stateEstimatorData.jointPositions.size());
-    Matrix<double, 12, 1> posError = intermediatePosVec - currentPosVec;
-    const double kp = 4.0;
-    Matrix<double, 12, 1> velCmd = kp * posError;
-
-    for (int i = 0; i < 12; i++)
-    {
-        auto motorCmdPtr = cmdArrPtr->Add();
-        motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_VELOCITY);
-        motorCmdPtr->set_parameter(velCmd(i));
-    }
-    cmdMsg.set_message_id(messageCount_);
-    messageCount_++;
-    return cmdMsg;
 }
 
 std::optional<robot_interface::StateEstimatorMessage> SomeClass::GetLatestStateEstimatorMsg()
@@ -398,19 +316,14 @@ std::optional<robot_interface::FlyskyMessage> SomeClass::GetLatestFlyskyMsg()
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2)
-    {
-        std::cerr << "Please input robot name, e.g.: ./movement_controller robot1" << std::endl;
-        return 1;
-    }
     std::string robotName(argv[1]);
     // initialize eCAL API
-    eCAL::Initialize({}, "Robot1 Movement Controller");
+    eCAL::Initialize({}, "Robot1 Data Recorder");
 
     // set process state
-    eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "Robot1 Movement Controller");
+    eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "Robot1 Data Recorder");
 
-    SomeClass a(robotName);
+    SomeClass a;
     while (eCAL::Ok())
     {
         eCAL::Process::SleepMS(100);
