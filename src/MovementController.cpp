@@ -327,19 +327,28 @@ std::optional<robot_interface::MotorCmdMsg> SomeClass::RunBalanceController(
 robot_interface::MotorCmdMsg SomeClass::RunRecoveryStandController(
     const robot_interface::StateEstimatorMessage &stateEstimatorMsg, const robot_interface::FlyskyMessage &flyskyMsg)
 {
+    using Eigen::Map;
+    using Eigen::Matrix;
+    const auto stateEstimatorData = StateEstimatorDataFromProtobuf(stateEstimatorMsg);
     auto cmd = recoveryStandController_->Run(
-        StateEstimatorDataFromProtobuf(stateEstimatorMsg),
+        stateEstimatorData,
         duration_cast<nanoseconds>(high_resolution_clock::now() - recoveryControllerStartTime_).count());
     robot_interface::MotorCmdMsg cmdMsg;
     auto cmdArrPtr = cmdMsg.mutable_commands();
     auto intermediatePos = recoveryStandController_->GetIntermediatePos();
+    Map<const Matrix<double, 12, 1>> intermediatePosVec(intermediatePos.data(), intermediatePos.size());
+    Map<const Matrix<double, 12, 1>> currentPosVec(stateEstimatorData.jointPositions.data(),
+                                                   stateEstimatorData.jointPositions.size());
+    Matrix<double, 12, 1> posError = intermediatePosVec - currentPosVec;
+    const double kp = 4.0;
+    Matrix<double, 12, 1> velCmd = kp * posError;
 
     for (int i = 0; i < 12; i++)
     {
         auto motorCmdPtr = cmdArrPtr->Add();
         motorCmdPtr->set_motor_id(i);
-        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_POSITION);
-        motorCmdPtr->set_parameter(intermediatePos.at(i));
+        motorCmdPtr->set_command(robot_interface::MotorCmd_CommandType_VELOCITY);
+        motorCmdPtr->set_parameter(velCmd(i));
     }
     cmdMsg.set_message_id(messageCount_);
     messageCount_++;
