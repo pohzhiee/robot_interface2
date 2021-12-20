@@ -178,10 +178,58 @@ SomeClass::~SomeClass()
 
 void SomeClass::RunLoop()
 {
+    std::this_thread::sleep_for(10ms);
     auto next = steady_clock::now() + 5ms;
     mainControllerStartTime_ = high_resolution_clock::now();
     while (!stopRequested_)
     {
+        auto GetCmd = [&](){
+            auto latestStateEstimatorMessage = GetLatestStateEstimatorMsg();
+            if (!latestStateEstimatorMessage.has_value())
+            {
+                return RunRead();
+            }
+            auto latestFlyskyMessage = GetLatestFlyskyMsg();
+            if (!latestFlyskyMessage.has_value())
+                return RunRead();
+            std::optional<robot_interface::MotorCmdMsg> cmdMsg;
+            switch (runMode_)
+            {
+            case RunMode::ZeroTorque:
+                cmdMsg = RunZeroTorque();
+                previousRunMode_ = RunMode::ZeroTorque;
+                break;
+            case RunMode::ZeroPosition:
+                cmdMsg = RunZeroPosition();
+                previousRunMode_ = RunMode::ZeroPosition;
+                break;
+            case RunMode::BalanceWalk:
+                if (previousRunMode_ != RunMode::BalanceWalk)
+                {
+                    mainControllerStartTime_ = high_resolution_clock::now();
+                    mainController_->Reset();
+                }
+                cmdMsg = RunBalanceController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
+                previousRunMode_ = RunMode::BalanceWalk;
+                break;
+            case RunMode::Recovery:
+                if (previousRunMode_ != RunMode::Recovery)
+                {
+                    recoveryControllerStartTime_ = high_resolution_clock::now();
+                    recoveryStandController_->Reset();
+                }
+                cmdMsg = RunRecoveryStandController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
+                previousRunMode_ = RunMode::Recovery;
+                break;
+            default:
+                cmdMsg = std::nullopt;
+            }
+            if (!cmdMsg.has_value())
+                return RunRead();
+            return cmdMsg.value();
+        };
+
+        auto cmd = GetCmd();
         auto loopStartTime = steady_clock::now();
         if (loopStartTime > next)
         {
@@ -191,50 +239,7 @@ void SomeClass::RunLoop()
         std::this_thread::sleep_until(next);
         next = next + duration<int64_t, std::ratio<1, 800>>{1};
 
-        auto latestStateEstimatorMessage = GetLatestStateEstimatorMsg();
-        if (!latestStateEstimatorMessage.has_value())
-        {
-            motorCmdPub_->Send(RunRead());
-            continue;
-        }
-        auto latestFlyskyMessage = GetLatestFlyskyMsg();
-        if (!latestFlyskyMessage.has_value())
-            continue;
-        std::optional<robot_interface::MotorCmdMsg> cmdMsg;
-        switch (runMode_)
-        {
-        case RunMode::ZeroTorque:
-            cmdMsg = RunZeroTorque();
-            previousRunMode_ = RunMode::ZeroTorque;
-            break;
-        case RunMode::ZeroPosition:
-            cmdMsg = RunZeroPosition();
-            previousRunMode_ = RunMode::ZeroPosition;
-            break;
-        case RunMode::BalanceWalk:
-            if (previousRunMode_ != RunMode::BalanceWalk)
-            {
-                mainControllerStartTime_ = high_resolution_clock::now();
-                mainController_->Reset();
-            }
-            cmdMsg = RunBalanceController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
-            previousRunMode_ = RunMode::BalanceWalk;
-            break;
-        case RunMode::Recovery:
-            if (previousRunMode_ != RunMode::Recovery)
-            {
-                recoveryControllerStartTime_ = high_resolution_clock::now();
-                recoveryStandController_->Reset();
-            }
-            cmdMsg = RunRecoveryStandController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
-            previousRunMode_ = RunMode::Recovery;
-            break;
-        default:
-            cmdMsg = std::nullopt;
-        }
-        if (!cmdMsg.has_value())
-            continue;
-        motorCmdPub_->Send(cmdMsg.value());
+        motorCmdPub_->Send(cmd);
     }
 }
 
