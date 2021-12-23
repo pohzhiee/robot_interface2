@@ -19,6 +19,8 @@ find_package(urdfdom REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(eCAL REQUIRED)
 find_package(robot_interface_protobuf REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(fmt REQUIRED)
 
 add_library(robot_interface_utils src/utils/MessageConversion.cpp)
 target_include_directories(
@@ -52,12 +54,13 @@ target_include_directories(
 target_link_libraries(movement_controller PUBLIC eCAL::core robot_interface_protobuf MainController
         RecoveryStandController)
 
+find_package (SQLite3 REQUIRED)
 add_executable(data_recorder src/DataRecorder.cpp)
 target_include_directories(
         data_recorder PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(data_recorder PUBLIC eCAL::core robot_interface_protobuf
-        nlohmann_json::nlohmann_json spdlog::spdlog fmt::fmt)
+        spdlog::spdlog fmt::fmt nlohmann_json::nlohmann_json SQLite::SQLite3 ${CMAKE_DL_LIBS})
 
 add_executable(robot_system_pub src/RobotSystemPub.cpp)
 target_include_directories(

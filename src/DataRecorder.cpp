@@ -1,30 +1,46 @@
-#include <hyq_cheetah/MPC.hpp>
-
 #include "robot_interface2/utils/NlohmannJsonEigenConversion.hpp"
+#include <Eigen/Geometry>
 #include <ecal/ecal.h>
-#include <ecal/msg/protobuf/publisher.h>
 #include <ecal/msg/protobuf/subscriber.h>
+#include <fmt/chrono.h>
 #include <fstream>
 #include <iomanip>
-#include <nlohmann/json.hpp>
 #include <optional>
 #include <robot_interface_protobuf/flysky_message.pb.h>
 #include <robot_interface_protobuf/motor_cmd_msg.pb.h>
+#include <robot_interface_protobuf/motor_feedback_msg.pb.h>
 #include <robot_interface_protobuf/state_estimator_message.pb.h>
 #include <spdlog/spdlog.h>
+#include <sqlite3.h>
+#include <signal.h>
 #include <thread>
 
-using namespace hyq_cheetah;
 using namespace eCAL::protobuf;
 using namespace std::chrono;
 using namespace std::chrono_literals;
 namespace
 {
-hyq_cheetah::StateEstimatorData StateEstimatorDataFromProtobuf(const robot_interface::StateEstimatorMessage &msg)
+struct UserInput
+{
+    double yaw_turn_rate;
+    double x_vel_cmd;
+    double y_vel_cmd;
+    double height;
+};
+
+struct StateEstimatorData
+{
+    Eigen::Quaterniond baseRotation;        // quaternion, in world frame
+    Eigen::Vector3d worldLinearVelocity;    // in world frame
+    Eigen::Vector3d worldAngularVelocity;   // in world frame
+    std::array<double, 12> jointPositions;  // in radians
+    std::array<double, 12> jointVelocities; // in rad/s
+};
+StateEstimatorData StateEstimatorDataFromProtobuf(const robot_interface::StateEstimatorMessage &msg)
 {
     assert(msg.joint_positions().size() == 12);
     assert(msg.joint_velocities().size() == 12);
-    hyq_cheetah::StateEstimatorData data;
+    StateEstimatorData data;
     data.baseRotation = Eigen::Quaterniond(msg.base_orientation().w(), msg.base_orientation().x(),
                                            msg.base_orientation().y(), msg.base_orientation().z());
     data.worldAngularVelocity = Eigen::Vector3d(msg.world_angular_velocity().x(), msg.world_angular_velocity().y(),
@@ -36,10 +52,10 @@ hyq_cheetah::StateEstimatorData StateEstimatorDataFromProtobuf(const robot_inter
     return data;
 }
 
-hyq_cheetah::UserInput UserInputFromFlyskyProtobuf(const robot_interface::FlyskyMessage &msg)
+UserInput UserInputFromFlyskyProtobuf(const robot_interface::FlyskyMessage &msg)
 {
     assert(msg.switch_a() != robot_interface::FlyskyMessage_SwitchState_UNKNOWN);
-    hyq_cheetah::UserInput userInput;
+    UserInput userInput;
     // Ch1 is y, -ve
     // Ch2 is x, +ve
     // Ch4 is yaw rate, -ve
@@ -63,21 +79,6 @@ enum class RunMode
     BalanceWalk
 };
 
-class DummyBalanceController : public BalanceController
-{
-    [[nodiscard]] Eigen::Matrix<double, 3, numLegs> Run(const StateEstimatorData &estimatedState,
-                                                        const UserInput &userInput, const Eigen::Vector3d &desRpy,
-                                                        const Eigen::Matrix<double, 3, numLegs> &footDist,
-                                                        const Gait &gait) const final
-    {
-        return Eigen::Matrix<double, 3, numLegs>::Zero();
-    }
-    void Reset() final
-    {
-        std::cout << "reset" << std::endl;
-    };
-};
-
 class SomeClass
 {
   public:
@@ -85,13 +86,8 @@ class SomeClass
     ~SomeClass();
 
     void RunLoop();
-    void RunBalanceController(const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
-                              const robot_interface::FlyskyMessage &flyskyMsg);
-    void RunRecoveryStandController(const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
-                                    const robot_interface::FlyskyMessage &flyskyMsg);
-    void RunZeroTorque();
-    void RunZeroPosition();
-    void RunRead();
+    void RecordBalancingData(const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
+                             const robot_interface::FlyskyMessage &flyskyMsg);
 
   private:
     std::optional<robot_interface::StateEstimatorMessage> GetLatestStateEstimatorMsg();
@@ -99,6 +95,8 @@ class SomeClass
     // Pub subs
     std::unique_ptr<CSubscriber<robot_interface::StateEstimatorMessage>> stateEstimatorSub_;
     std::unique_ptr<CSubscriber<robot_interface::FlyskyMessage>> flyskySub_;
+    std::unique_ptr<CSubscriber<robot_interface::MotorCmdMsg>> cmdSub_;
+    std::unique_ptr<CSubscriber<robot_interface::MotorFeedbackMsg>> feedbackSub_;
     // Subscriber data
     std::optional<robot_interface::FlyskyMessage> latestFlyskyMessage_{std::nullopt};
     std::optional<robot_interface::StateEstimatorMessage> latestStateEstimatorMessage_{std::nullopt};
@@ -116,12 +114,48 @@ class SomeClass
     RunMode previousRunMode_{RunMode::ZeroTorque};
     std::uint64_t messageCount_{0};
     std::vector<nlohmann::json> dataItems{};
+    sqlite3 *sqliteDb_;
+
+    // Callbacks
+    void CmdMsgCb(const char *, const robot_interface::MotorCmdMsg &msg_, long long, long long, long long);
+    void FeedbackMsgCb(const char *, const robot_interface::MotorFeedbackMsg &msg_, long long, long long, long long);
 };
 
 SomeClass::SomeClass()
     : stateEstimatorSub_(std::make_unique<CSubscriber<robot_interface::StateEstimatorMessage>>("state_estimator")),
-      flyskySub_(std::make_unique<CSubscriber<robot_interface::FlyskyMessage>>("flysky"))
+      flyskySub_(std::make_unique<CSubscriber<robot_interface::FlyskyMessage>>("flysky")),
+      cmdSub_(std::make_unique<CSubscriber<robot_interface::MotorCmdMsg>>("motor_cmd")),
+      feedbackSub_(std::make_unique<CSubscriber<robot_interface::MotorFeedbackMsg>>("motor_feedback"))
 {
+    std::time_t t = std::time(nullptr);
+    std::string dbName = fmt::format("{:%Y_%m_%d_%H%M%S}.db", *std::localtime(&t));
+    int rc = sqlite3_open(dbName.c_str(), &sqliteDb_);
+    if (rc != SQLITE_OK)
+    {
+        throw std::runtime_error(fmt::format("Failed to open sqlite database at {}", dbName));
+    }
+    constexpr std::string_view createTableTemplate = "create table {}\n"
+                                                     "(\n"
+                                                     "    time_ns integer not null,\n"
+                                                     "    type    text    not null,\n"
+                                                     "    value   real    not null\n"
+                                                     ");";
+    for (int i = 0; i < 12; i++)
+    {
+        std::string tableName = fmt::format("motor{}", i);
+        std::string createTableString = fmt::format(createTableTemplate, tableName);
+        sqlite3_exec(sqliteDb_, "BEGIN TRANSACTION;", NULL, NULL, NULL);
+        rc = sqlite3_exec(sqliteDb_, createTableString.c_str(), nullptr, nullptr, nullptr);
+        sqlite3_exec(sqliteDb_, "END TRANSACTION;", NULL, NULL, NULL);
+        if (rc != SQLITE_OK)
+        {
+            throw std::runtime_error(fmt::format("Failed to create table {}", tableName));
+        }
+    }
+    cmdSub_->AddReceiveCallback(
+        [this](auto a, const auto &b, auto c, auto d, auto e) { this->CmdMsgCb(a, b, c, d, e); });
+    feedbackSub_->AddReceiveCallback(
+        [this](auto a, const auto &b, auto c, auto d, auto e) { this->FeedbackMsgCb(a, b, c, d, e); });
     stateEstimatorSub_->AddReceiveCallback(
         [&](auto, const robot_interface::StateEstimatorMessage &msg, auto, auto, auto) {
             std::lock_guard lock(stateEstimatorMutex_);
@@ -158,6 +192,7 @@ SomeClass::SomeClass()
 
 SomeClass::~SomeClass()
 {
+    sqlite3_close(sqliteDb_);
     stopRequested_ = true;
     runThread_.join();
 }
@@ -196,11 +231,9 @@ void SomeClass::RunLoop()
         switch (runMode_)
         {
         case RunMode::ZeroTorque:
-            RunZeroTorque();
             previousRunMode_ = RunMode::ZeroTorque;
             break;
         case RunMode::ZeroPosition:
-            RunZeroPosition();
             previousRunMode_ = RunMode::ZeroPosition;
             break;
         case RunMode::BalanceWalk:
@@ -208,11 +241,10 @@ void SomeClass::RunLoop()
             {
                 mainControllerStartTime_ = high_resolution_clock::now();
             }
-            RunBalanceController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
+            RecordBalancingData(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
             previousRunMode_ = RunMode::BalanceWalk;
             break;
         case RunMode::Recovery:
-            RunRecoveryStandController(latestStateEstimatorMessage.value(), latestFlyskyMessage.value());
             previousRunMode_ = RunMode::Recovery;
             break;
         default:
@@ -221,23 +253,14 @@ void SomeClass::RunLoop()
     }
 }
 
-void SomeClass::RunRead()
-{
-}
-
-void SomeClass::RunZeroTorque()
-{
-}
-void SomeClass::RunZeroPosition()
-{
-}
-void SomeClass::RunBalanceController(const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
-                                     const robot_interface::FlyskyMessage &flyskyMsg)
+void SomeClass::RecordBalancingData(const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
+                                    const robot_interface::FlyskyMessage &flyskyMsg)
 {
     using namespace nlohmann;
     const auto &estimatedState = StateEstimatorDataFromProtobuf(stateEstimatorMsg);
     const auto &userInput = UserInputFromFlyskyProtobuf(flyskyMsg);
-    const auto timeSinceStart = duration_cast<nanoseconds>(high_resolution_clock::now() - mainControllerStartTime_).count();
+    const auto timeSinceStart =
+        duration_cast<nanoseconds>(high_resolution_clock::now() - mainControllerStartTime_).count();
     {
         // Record data
         json dataItem;
@@ -257,10 +280,6 @@ void SomeClass::RunBalanceController(const robot_interface::StateEstimatorMessag
         dataItem["timeSinceStart"] = timeSinceStart;
         dataItems.emplace_back(std::move(dataItem));
     }
-}
-void SomeClass::RunRecoveryStandController(const robot_interface::StateEstimatorMessage &stateEstimatorMsg,
-                                           const robot_interface::FlyskyMessage &flyskyMsg)
-{
 }
 
 std::optional<robot_interface::StateEstimatorMessage> SomeClass::GetLatestStateEstimatorMsg()
@@ -303,8 +322,93 @@ std::optional<robot_interface::FlyskyMessage> SomeClass::GetLatestFlyskyMsg()
     return latestFlyskyMessage_.value();
 }
 
+void SomeClass::CmdMsgCb(const char * /*topic_name_*/, const robot_interface::MotorCmdMsg &msg, long long time_,
+                         long long /*clock_*/, long long /*id_*/)
+{
+    constexpr std::string_view insertTemplate = "insert into {} (time_ns, type, value)\n"
+                                                "values ({}, \'{}\', {});";
+    uint64_t timeNs = duration_cast<nanoseconds>(high_resolution_clock::now().time_since_epoch()).count();
+    for (auto &cmd : msg.commands())
+    {
+        std::string typeStr;
+        switch (cmd.command())
+        {
+        case robot_interface::MotorCmd_CommandType_POSITION:
+            typeStr = "cmd_pos";
+            break;
+        case robot_interface::MotorCmd_CommandType_VELOCITY:
+            typeStr = "cmd_vel";
+            break;
+        case robot_interface::MotorCmd_CommandType_TORQUE:
+            typeStr = "cmd_torque";
+            break;
+        default:
+            continue;
+        }
+        auto id = cmd.motor_id();
+        std::string tableName = fmt::format("motor{}", id);
+        std::string sqlStatement = fmt::format(insertTemplate, tableName, timeNs, typeStr, cmd.parameter());
+        sqlite3_exec(sqliteDb_, "BEGIN TRANSACTION;", NULL, NULL, NULL);
+        // Any (modifying) SQL commands executed here are not committed until at the you call:
+        int rc = sqlite3_exec(sqliteDb_, sqlStatement.c_str(), nullptr, nullptr, nullptr);
+        sqlite3_exec(sqliteDb_, "END TRANSACTION;", NULL, NULL, NULL);
+        if (rc != SQLITE_OK)
+        {
+            std::cerr << "[cmd] insert error on table " << tableName << " at time " << timeNs << std::endl;
+        }
+    }
+}
+void SomeClass::FeedbackMsgCb(const char * /*topic_name_*/, const robot_interface::MotorFeedbackMsg &msg,
+                              long long time, long long clock, long long id)
+{
+
+    constexpr std::string_view insertTemplate = "insert into {0} (time_ns, type, value)\n"
+                                                "values ({1}, \'pos\', {2});"
+                                                "insert into {0} (time_ns, type, value)\n"
+                                                "values ({1}, \'vel\', {3});"
+                                                "insert into {0} (time_ns, type, value)\n"
+                                                "values ({1}, \'torque\', {4});"
+                                                "insert into {0} (time_ns, type, value)\n"
+                                                "values ({1}, \'temperature\', {5});";
+    static bool first = true;
+    uint64_t timeNs = duration_cast<nanoseconds>(high_resolution_clock::now().time_since_epoch()).count();
+    if(first){
+        first = false;
+        std::cerr << "Timens: " << timeNs << std::endl;
+        std::cerr << "Time: " << time << std::endl;
+        std::cerr << "clock: " << clock << std::endl;
+        std::cerr << "id: " << id << std::endl;
+    }
+    for (auto &feedback : msg.feedbacks())
+    {
+        if (!feedback.ready())
+            continue;
+        std::string typeStr;
+        auto motorId = feedback.motor_id();
+        std::string tableName = fmt::format("motor{}", motorId);
+        std::string sqlStatement = fmt::format(insertTemplate, tableName, timeNs, feedback.angle(), feedback.velocity(),
+                                               feedback.torque(), feedback.temperature());
+        sqlite3_exec(sqliteDb_, "BEGIN TRANSACTION;", NULL, NULL, NULL);
+        // Any (modifying) SQL commands executed here are not committed until at the you call:
+        int rc = sqlite3_exec(sqliteDb_, sqlStatement.c_str(), nullptr, nullptr, nullptr);
+        sqlite3_exec(sqliteDb_, "END TRANSACTION;", NULL, NULL, NULL);
+        if (rc != SQLITE_OK)
+        {
+            std::cerr << "[fdbk] insert error on table " << tableName << " at time " << timeNs << std::endl;
+        }
+    }
+}
+
+bool isInt = false;
+void my_handler(int s){
+    printf("Caught signal %d\n",s);
+    isInt = true;
+}
+
+
 int main(int argc, char *argv[])
 {
+    signal(SIGINT,my_handler);
     // initialize eCAL API
     eCAL::Initialize({}, "Robot1 Data Recorder");
 
@@ -312,9 +416,10 @@ int main(int argc, char *argv[])
     eCAL::Process::SetState(proc_sev_healthy, proc_sev_level1, "Robot1 Data Recorder");
 
     SomeClass a;
-    while (eCAL::Ok())
+    while (eCAL::Ok() && !isInt)
     {
         eCAL::Process::SleepMS(100);
     }
+    std::cout << "Ending" << std::endl;
     eCAL::Finalize();
 }
